@@ -148,6 +148,22 @@ async function main() {
                 // Write the modified string back to the file
                 fs.writeFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, config, 'utf8');  
               } catch(err) {
+                config = `
+module.exports = {
+  apps: [
+    {
+      name: '${addUser}',
+      script: '${process.env.BOT_FULL_PATH}/channels/${addUser}.js',
+      log_date_format: "YYYY-MM-DD",
+      max_memory_restart: "100M",
+    }
+  ]
+}`
+                try {
+                  fs.writeFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, config);
+                } catch (err) {
+                  console.error(err);
+                }
                 console.error(err)
               }
 
