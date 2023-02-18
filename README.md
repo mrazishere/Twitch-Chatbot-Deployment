@@ -30,39 +30,39 @@ Tested on Ubuntu 22.10 but should very well work with Debian and other Linux dis
 
 
 - Install nvm & restart SSH session
-```
+```Shell
 wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash && exit
 ```
 - Start a new SSH session & install latest stable Node.js version:
-```
+```Shell
 nvm install node
 ```
 - Upgrade npm & install PM2
-```
+```Shell
 npm install -g npm@latest && npm install pm2 -g
 ```
 - Update Apt and install git:
-```
+```Shell
 sudo apt update && apt install git
 ```
 - Clone the repo
-```
+```Shell
 git clone https://github.com/mrazishere/Twitch-Chatbot-Deployment.git
 ```
 - Change to working directory
-```
+```Shell
 cd Twitch-Chatbot-Deployment
 ```
 - Install the bot & dependencies
-```
+```Shell
 npm install
 ```
 - create .env file
-```
+```Shell
 nano .env
 ```
 - Copy below and modify accordingly
-```
+```YAML
 # Twitch username of the bot
 TWITCH_USERNAME = bot_username
 
@@ -96,6 +96,6 @@ API_FUNTRANSLATION_SECRET =
 SNIPECD_EXCLUDE = ["#channel"]
 ```
 - Start the Bot-Deployment-Manager
-```
+```Shell
 pm2 start ecosystem.config.js
 ```
