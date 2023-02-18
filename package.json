@@ -1,0 +1,41 @@
+{
+  "name": "@mrazishere/twitch-chatbot-deployment",
+  "version": "1.0.0",
+  "description": "Deploys multiple node.js instances for multiple Twitch streams with the use of PM2",
+  "homepage": "https://github.com/mrazishere/Twitch-Chatbot-Deployment",
+  "bugs": {
+    "url": "https://github.com/mrazishere/Twitch-Chatbot-Deployment/issues"
+  },
+  "author": {
+    "name": "MrAZ",
+    "url": "https://mr-ai.dev",
+    "email": "hello@mr-ai.dev"
+  },
+  "main": "bot-deployment.js",
+  "scripts": {
+    "start": "node bot-deployment.js",
+    "dev": "",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "Twitch",
+    "node.js",
+    "chat",
+    "bot"
+  ],
+  "dependencies": {
+    "body-parser": "^1.20.1",
+    "cross-fetch": "^3.1.4",
+    "dotenv": "^10.0.0",
+    "express": "^4.18.2",
+    "express-http-to-https": "^1.1.4",
+    "glob": "^8.1.0",
+    "googletrans": "^1.0.4",
+    "mongodb": "^4.12.1",
+    "node-twitch": "^0.4.7",
+    "openai": "^3.1.0",
+    "path": "^0.12.7",
+    "pm2": "^5.2.2",
+    "tmi.js": "^1.8.3"
+  }
+}
