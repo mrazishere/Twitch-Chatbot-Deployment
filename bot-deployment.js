@@ -131,12 +131,12 @@ async function main() {
                 console.log("Data written to file");
               });
 
-              // Read the contents of the file into a string
-              let config = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, 'utf8');
-
-              // Insert the new app configuration into the apps array
-              config = config.replace(/apps:\s*\[([\s\S]*?)\]/g, (match, p1) => {
-                return `apps: [${p1}  ,
+              try {
+                // Read the contents of the file into a string
+                let config = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, 'utf8');
+                // Insert the new app configuration into the apps array
+                config = config.replace(/apps:\s*\[([\s\S]*?)\]/g, (match, p1) => {
+                  return `apps: [${p1}  ,
     {
       name: '${addUser}',
       script: '${process.env.BOT_FULL_PATH}/channels/${addUser}.js',
@@ -145,9 +145,11 @@ async function main() {
     }
   ]`;
               });
-
-              // Write the modified string back to the file
-              fs.writeFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, config, 'utf8');
+                // Write the modified string back to the file
+                fs.writeFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, config, 'utf8');  
+              } catch(err) {
+                console.error(err)
+              }
 
               exec(
                 `pm2 start ${process.env.BOT_FULL_PATH}/channels/${addUser}.js`,
