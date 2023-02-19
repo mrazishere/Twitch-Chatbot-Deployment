@@ -24,18 +24,13 @@
     "bot"
   ],
   "dependencies": {
-    "body-parser": "^1.20.1",
-    "cross-fetch": "^3.1.4",
-    "dotenv": "^10.0.0",
-    "express": "^4.18.2",
-    "express-http-to-https": "^1.1.4",
+    "node-fetch": "^3.3.0",
+    "dotenv": "^16.0.3",
     "glob": "^8.1.0",
     "googletrans": "^1.0.4",
-    "mongodb": "^4.12.1",
-    "node-twitch": "^0.4.7",
-    "openai": "^3.1.0",
+    "node-twitch": "^0.5.0",
     "path": "^0.12.7",
     "pm2": "^5.2.2",
-    "tmi.js": "^1.8.3"
+    "tmi.js": "^1.8.5"
   }
 }

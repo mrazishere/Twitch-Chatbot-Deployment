@@ -2,9 +2,7 @@ async function main() {
   // Require necessary node modules
   // Make the variables inside the .env element available to our Node project
   require('dotenv').config();
-  const fetch = require('cross-fetch');
   const tmi = require('tmi.js');
-  const fs = require('fs');
 
   // Twitch API
   const TwitchApi = require("node-twitch").default;
