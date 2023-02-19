@@ -19,14 +19,13 @@ This project allows deployment of Twitch chatbot for multiple channels running o
     - Bot owner can manually delete the instance & remove from the ecosystem.config.js file
 
 
-## Bot Usage Guide
-TODO:
-- Commands documentation
-- Bot Management documentation
+## TODO:
+- [ ] Commands documentation
+- [ ] Bot Management documentation
 
 
-## Installation
-Tested on Ubuntu 22.10 but should very well work with Debian and other Linux distros however installation steps may vary
+## Installation(Tested: Ubuntu/Debian)
+Tested on Ubuntu 22.10 but should very well work with Debian and other Linux distros however installation steps may vary. If you have Windows and do not have access to a Linux system, you can now [Install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install)
 
 
 - Install nvm & restart SSH session
