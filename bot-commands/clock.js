@@ -15,8 +15,7 @@
  *  
  */
 
-//const fetch = require('node-fetch');  // import the fetch function
-import fetch from 'node-fetch';
+const fetch = require('node-fetch');  // import the fetch function
 const fs = require('fs');
 
 // Sleep function

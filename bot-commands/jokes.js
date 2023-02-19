@@ -14,8 +14,7 @@
  *  
  */
 
-//const fetch = require('node-fetch');  // import the fetch function
-import fetch from 'node-fetch';
+const fetch = require('node-fetch');  // import the fetch function
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
