@@ -181,14 +181,14 @@ module.exports = {
                   console.log(`stdout: ${stdout}`);
                   client.say(
                     channel,
-                    `Added successfully to #${addUser} chat. Check my about page for available commands. Whisper @MrAZisHere if you have any questions.`
+                    `Added successfully to #${addUser} chat. Check my about page for available commands. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`
                   );
                 }
               );
             } else {
               client.say(
                 channel,
-                `New bot deployment is currently disabled due to max capacity(${maxChannels}). Whisper @MrAZisHere if you require this urgently for an exception.`
+                `New bot deployment is currently disabled due to max capacity(${maxChannels}). Whisper @${process.env.TWITCH_OWNER} if you require this urgently for an exception.`
               );
             }
           });
@@ -213,7 +213,7 @@ module.exports = {
             console.log(`stdout: ${stdout}`);
             client.say(
               channel,
-              `Restarting bot on #${addUser} chat. Check my about page for available commands. Whisper @MrAZisHere if you have any questions.`
+              `Restarting bot on #${addUser} chat. Check my about page for available commands. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`
             );
           });
         } else {
@@ -230,7 +230,7 @@ module.exports = {
             console.log(`stdout: ${stdout}`);
             client.say(
               channel,
-              `Bot is seen offline, restarting bot on #${addUser} chat. Check my about page for available commands. Whisper @MrAZisHere if you have any questions.`
+              `Bot is seen offline, restarting bot on #${addUser} chat. Check my about page for available commands. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`
             );
           });
         }
@@ -292,7 +292,7 @@ module.exports = {
             console.log(`stdout: ${stdout}`);
             client.say(
               channel,
-              `Removed successfully from #${removeUser} chat. Whisper @MrAZisHere if you have any questions.`
+              `Removed successfully from #${removeUser} chat. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`
             );
           });
         } else {
