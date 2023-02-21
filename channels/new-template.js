@@ -116,6 +116,11 @@ async function main() {
       });
     });
 
+    // Create a command for broadcaters to create custom commands
+    if (message.includes("!addcommand" || "!delcommand" || "editcommand")) {
+      commands["customCommands"](client, message, channel, tags);
+    }
+
     if (message.includes("!advice")) {
       commands["advice"](client, message, channel, tags);
     }
