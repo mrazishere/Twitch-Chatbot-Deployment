@@ -17,9 +17,17 @@ exports.customCommands = async function customCommands(client, message, channel,
         return;
     }
 
+    // Load custom-commands.json file and parse it
+    const commandJSON = fs.readFileSync(`${process.env.BOT_FULL_PATH}/bot-commands/custom-commands.json`, 'utf8');
+    const commandData = JSON.parse(commandJSON);
+
     if (message.includes("!addcommand")) {
-        // Check if the user is trying to add a command with a name that already exists
-        if (message.includes("!addcommand " + commandName)) {
+        // Extract commands and response from channel in JSON file
+        const commandName = message.split("!addcommand ")[1].split(" ")[0];
+        const commandResponse = message.split("!addcommand " + commandName + " ")[1];
+        
+        // Check if the user is trying to add a command that exists in commandData
+        if (commandData.some(command => command.channel === channel1 && command.commandName === commandName)) {
             client.say(channel, `@${tags.username}, That command already exists!`);
             return;
         } else {
