@@ -106,7 +106,7 @@ async function main() {
     // If a command needs to be updated, this can be done centrally on the command.js file which should take effect on all channels.
 
     const glob = require("glob");
-    const commandFiles = glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/**/*.js`);
+    const commandFiles = glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`);
     const commands = {};
 
     commandFiles.forEach(file => {
