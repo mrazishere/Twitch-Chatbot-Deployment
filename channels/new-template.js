@@ -116,6 +116,10 @@ async function main() {
       });
     });
 
+    // Call whole command file
+    commands["customCommands"](client, message, channel, tags);
+    commands["translate"](client, message, channel, tags);
+
     if (message.includes("!advice")) {
       commands["advice"](client, message, channel, tags);
     }
@@ -182,8 +186,6 @@ async function main() {
         return;
       }
     }
-
-    commands["translate"](client, message, channel, tags);
 
     if (message.includes("!yoda")) {
       commands["yoda"](client, message, channel, tags);
