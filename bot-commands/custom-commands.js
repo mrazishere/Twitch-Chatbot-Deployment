@@ -75,13 +75,13 @@ exports.customCommands = async function customCommands(client, message, channel,
       return `@${tags.username}, Command updated!`;
     }
 
-    if (!isModUp) {
+    if (!isModUp && (message.includes("!addcommand") || message.includes("!editcommand") || message.includes("!delcommand") || message.includes("!clist"))) {
         client.say(channel, `@${tags.username}, Custom Commands are for Moderators & above.`);
         return;
     }
 
 
-    if (message.includes("!addcommand")) {
+    if (message.split(" ")[0] === "!addcommand") {
         const commandWords = message.split(" ");
         const commandName = commandWords[1].toLowerCase();
         const commandResponse = commandWords.slice(2).join(" ");
@@ -135,7 +135,7 @@ exports.customCommands = async function customCommands(client, message, channel,
     }
 
 
-    if (message.includes("!editcommand")) {
+    if (message.split(" ")[0] === "!editcommand") {
         const commandWords = message.split(" ");
         const commandName = commandWords[1].toLowerCase();
         const commandResponse = commandWords.slice(2).join(" ");
@@ -188,7 +188,7 @@ exports.customCommands = async function customCommands(client, message, channel,
         }
     }
 
-    if (message.includes("!delcommand")) {
+    if (message.split(" ")[0] === "!delcommand") {
         const commandWords = message.split(" ");
         const commandName = commandWords[1].toLowerCase();
         const commandResponse = commandWords.slice(2).join(" ");
@@ -204,7 +204,7 @@ exports.customCommands = async function customCommands(client, message, channel,
             return;
         }
     }
-    if (message.includes("!clist")) {
+    if (message.split(" ")[0] === "!clist") {
         // Get the list of custom commands
         const commandList = Object.keys(customCommands);
         // Check if there are any custom commands
