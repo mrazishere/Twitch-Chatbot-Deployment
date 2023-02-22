@@ -116,10 +116,9 @@ async function main() {
       });
     });
 
-    // Create a command for broadcaters to create custom commands
-    if (message.includes("!addcommand" || "!delcommand" || "editcommand")) {
-      commands["customCommands"](client, message, channel, tags);
-    }
+    // Call whole command file
+    commands["customCommands"](client, message, channel, tags);
+    commands["translate"](client, message, channel, tags);
 
     if (message.includes("!advice")) {
       commands["advice"](client, message, channel, tags);
@@ -187,8 +186,6 @@ async function main() {
         return;
       }
     }
-
-    commands["translate"](client, message, channel, tags);
 
     if (message.includes("!yoda")) {
       commands["yoda"](client, message, channel, tags);

@@ -1,48 +1,108 @@
 const fs = require('fs');
+const {
+    promisify
+} = require('util');
 
-// Function to create custom commands and store them in a JSON file
+const readFileAsync = promisify(fs.readFile);
+const writeFileAsync = promisify(fs.writeFile);
+
 exports.customCommands = async function customCommands(client, message, channel, tags) {
-    // Set variables for user permission logic
     const badges = tags.badges || {};
     const isBroadcaster = badges.broadcaster;
     const isMod = badges.moderator;
     const isVIP = badges.vip;
     const isModUp = isBroadcaster || isMod || tags.username == `${process.env.TWITCH_OWNER}`;
     const isVIPUp = isVIP || isModUp;
-    const channel1 = channel.substring(1); //channel name (i.e. username)
+    const channel1 = channel.substring(1);
 
-    // Check if the user is a mod or above
+    let customCommands = {};
+    try {
+        const data = await readFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel.replace('#', '')}.json`);
+        customCommands = JSON.parse(data);
+    } catch (err) {
+        console.error(err);
+    }
+
+    function commandExists(commandName) {
+        return customCommands.hasOwnProperty(commandName);
+    }
+
+    function addCommand(commandName, commandResponse) {
+        if (commandExists(commandName)) {
+            return `@${tags.username}, That command already exists!`;
+        }
+
+        customCommands[commandName] = commandResponse;
+
+        try {
+            writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
+        } catch (err) {
+            console.error(err);
+        }
+
+        return `@${tags.username}, Command added!`;
+    }
+
+    function removeCommand(commandName) {
+        if (!commandExists(commandName)) {
+            return `@${tags.username}, That command doesn't exist!`;
+        }
+
+        delete customCommands[commandName];
+
+        try {
+            writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
+        } catch (err) {
+            console.error(err);
+        }
+
+        return `@${tags.username}, Command removed!`;
+    }
+
+    function editCommand(commandName, commandResponse) {
+      if (!commandExists(commandName)) {
+        return `@${tags.username}, That command does not exist!`;
+      }
+
+      customCommands[commandName] = commandResponse;
+
+      try {
+        writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
+      } catch (err) {
+        console.error(err);
+      }
+
+      return `@${tags.username}, Command updated!`;
+    }
+
     if (!isModUp) {
         client.say(channel, `@${tags.username}, Custom Commands are for Moderators & above.`);
         return;
     }
 
-    // Load custom-commands.json file and parse it
-    const commandJSON = fs.readFileSync(`${process.env.BOT_FULL_PATH}/bot-commands/custom-commands.json`, 'utf8');
-    const commandData = JSON.parse(commandJSON);
 
     if (message.includes("!addcommand")) {
-        // Extract commands and response from channel in JSON file
-        const commandName = message.split("!addcommand ")[1].split(" ")[0];
-        const commandResponse = message.split("!addcommand " + commandName + " ")[1];
-        
-        // Check if the user is trying to add a command that exists in commandData
-        if (commandData.some(command => command.channel === channel1 && command.commandName === commandName)) {
+        const commandWords = message.split(" ");
+        const commandName = commandWords[1].toLowerCase();
+        const commandResponse = commandWords.slice(2).join(" ");
+
+        // Check if the user is trying to add a command with a name that already exists
+        if (commandExists(commandName)) {
             client.say(channel, `@${tags.username}, That command already exists!`);
             return;
         } else {
             // Check if the user is trying to add a command without a name
-            if (message.includes("!addcommand ")) {
+            if (commandName === "" || commandName === undefined) {
                 client.say(channel, `@${tags.username}, You need to specify a command name!`);
                 return;
             } else {
                 // Check if the user is trying to add a command without a response
-                if (message.includes("!addcommand " + commandName + " ")) {
+                if (commandResponse === "" || commandResponse === undefined) {
                     client.say(channel, `@${tags.username}, You need to specify a response!`);
                     return;
                 } else {
                     // Check if the user is trying to add a command with a response that is too long
-                    if (message.length > 100) {
+                    if (commandResponse.length > 100) {
                         client.say(channel, `@${tags.username}, Your response is too long!`);
                         return;
                     } else {
@@ -61,20 +121,10 @@ exports.customCommands = async function customCommands(client, message, channel,
                                     client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
                                     return;
                                 } else {
-                                    // Store the command in the JSON file
-                                    const commandName = message.split("!addcommand ")[1].split(" ")[0];
-                                    const commandResponse = message.split("!addcommand " + commandName + " ")[1];
-                                    const command = {
-                                        channel: channel1,
-                                        commandName: commandName,
-                                        commandResponse: commandResponse
-                                    };
-                                    const commandJSON = JSON.stringify(command);
-                                    fs.appendFile(`${process.env.BOT_FULL_PATH}/bot-commands/custom-commands.json`, commandJSON + ");", function (err) {
-                                        if (err) throw err;
-                                        client.say(channel, `@${tags.username}, Command added!`);
-                                        return;
-                                        });
+                                    // Add the command to the JSON file
+                                    const response = addCommand(commandName, commandResponse);
+                                    client.say(channel, response);
+                                    return;
                                 }
                             }
                         }
@@ -84,59 +134,29 @@ exports.customCommands = async function customCommands(client, message, channel,
         }
     }
 
-    // Path: bot-commands\custom-commands.js
-    // Function to delete custom commands and remove them from the JSON file
-    if (message.includes("!delcommand")) {
-        // Check if the user is trying to delete a command with a name that does not exist
-        if (!message.includes("!delcommand " + commandName)) {
-            client.say(channel, `@${tags.username}, That command does not exist!`);
-            return;
-        } else {
-            // Check if the user is trying to delete a command without a name
-            if (message.includes("!delcommand ")) {
-                client.say(channel, `@${tags.username}, You need to specify a command name!`);
-                return;
-            } else {
-                // Delete the command from the JSON file
-                const commandName = message.split("!delcommand ")[1];
-                const command = {
-                    channel: channel1,
-                    commandName: commandName,
-                    commandResponse: commandResponse
-                };
-                const commandJSON = JSON.stringify(command);
-                fs.readFile(`${process.env.BOT_FULL_PATH}/bot-commands/custom-commands.json`, 'utf8', function (err, data) {
-                    if (err) throw err;
-                    var newValue = data.replace(commandJSON + ");", "");
-                    fs.writeFile(`${process.env.BOT_FULL_PATH}/bot-commands/custom-commands.json`, newValue, 'utf8', function (err) {
-                        if (err) throw err;
-                        client.say(channel, `@${tags.username}, Command deleted!`);
-                        return;
-                    });
-                });
-            }
-        }
-    }
 
-    // Function to edit custom commands and update them in the JSON file
     if (message.includes("!editcommand")) {
-        // Check if the user is trying to edit a command with a name that does not exist
-        if (!message.includes("!editcommand " + commandName)) {
-            client.say(channel, `@${tags.username}, That command does not exist!`);
+        const commandWords = message.split(" ");
+        const commandName = commandWords[1].toLowerCase();
+        const commandResponse = commandWords.slice(2).join(" ");
+
+        // Check if the user is trying to edit a command with a name that does not exists
+        if (!commandExists(commandName)) {
+            client.say(channel, `@${tags.username}, That command does not exists!`);
             return;
         } else {
             // Check if the user is trying to edit a command without a name
-            if (message.includes("!editcommand ")) {
+            if (commandName === "" || commandName === undefined) {
                 client.say(channel, `@${tags.username}, You need to specify a command name!`);
                 return;
             } else {
                 // Check if the user is trying to edit a command without a response
-                if (message.includes("!editcommand " + commandName + " ")) {
+                if (commandResponse === "" || commandResponse === undefined) {
                     client.say(channel, `@${tags.username}, You need to specify a response!`);
                     return;
                 } else {
                     // Check if the user is trying to edit a command with a response that is too long
-                    if (message.length > 100) {
+                    if (commandResponse.length > 100) {
                         client.say(channel, `@${tags.username}, Your response is too long!`);
                         return;
                     } else {
@@ -155,24 +175,10 @@ exports.customCommands = async function customCommands(client, message, channel,
                                     client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
                                     return;
                                 } else {
-                                    // Update the command in the JSON file
-                                    const commandName = message.split("!editcommand ")[1].split(" ")[0];
-                                    const commandResponse = message.split("!editcommand " + commandName + " ")[1];
-                                    const command = {
-                                        channel: channel1,
-                                        commandName: commandName,
-                                        commandResponse: commandResponse
-                                    };
-                                    const commandJSON = JSON.stringify(command);
-                                    fs.readFile(`${process.env.BOT_FULL_PATH}/bot-commands/custom-commands.json`, 'utf8', function (err, data) {
-                                        if (err) throw err;
-                                        var newValue = data.replace(commandJSON + ");", "");
-                                        fs.writeFile(`${process.env.BOT_FULL_PATH}/bot-commands/custom-commands.json`, newValue, 'utf8', function (err) {
-                                            if (err) throw err;
-                                            client.say(channel, `@${tags.username}, Command updated!`);
-                                            return;
-                                        });
-                                    });
+                                    // Edit the command and upload to JSON file
+                                    const response = editCommand(commandName, commandResponse);
+                                    client.say(channel, response);
+                                    return;
                                 }
                             }
                         }
@@ -181,5 +187,42 @@ exports.customCommands = async function customCommands(client, message, channel,
             }
         }
     }
-};
 
+    if (message.includes("!delcommand")) {
+        const commandWords = message.split(" ");
+        const commandName = commandWords[1].toLowerCase();
+        const commandResponse = commandWords.slice(2).join(" ");
+
+        // Check if the user is trying to remove a command that doesn't exist
+        if (!commandExists(commandName)) {
+            client.say(channel, `@${tags.username}, That command doesn't exist!`);
+            return;
+        } else {
+            // Remove the command from the JSON file
+            const response = removeCommand(commandName);
+            client.say(channel, response);
+            return;
+        }
+    }
+    if (message.includes("!clist")) {
+        // Get the list of custom commands
+        const commandList = Object.keys(customCommands);
+        // Check if there are any custom commands
+        if (commandList.length === 0) {
+            client.say(channel, `@${tags.username}, There are no custom commands!`);
+            return;
+        } else {
+            // Send the list of custom commands to chat
+            client.say(channel, `@${tags.username}, Custom Commands: ${commandList.join(', ')}`);
+            return;
+        }
+    }
+    // Check if the user is trying to call a custom command
+    if (commandExists(message.substring(1)) && message.startsWith('!')) {
+        // Get the response for the custom command
+        const response = customCommands[message.substring(1)];
+        // Send the response to chat
+        client.say(channel, response);
+        return;
+    }
+}
