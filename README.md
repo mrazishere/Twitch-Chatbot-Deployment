@@ -9,24 +9,9 @@ This project allows deployment of Twitch chatbot for multiple channels running o
 - Customizable code for individual bot instances(channels/ folder)
 
 
-## How does it work?
-1. Once deployed, the bot will listen for 2 commands(!addme & !removeme) in the bot's chat
-    - Bot owner can set the maximum number of channels in the .env file
-2. Using the new-template.js file, a new bot instance file will be created in the channels folder
-    - the instance info will also be added to ecosystem.config.js file in the channels folder
-3. PM2 will then start the bot instance afterwhich the bot will be ready for use
-4. !removeme will send PM2 to power down the bot instance
-    - Bot owner can manually delete the instance & remove from the ecosystem.config.js file
-
-
-## TODO:
-- [ ] Commands documentation
-- [ ] Bot Management documentation
-
-
 ## Installation(Tested: Ubuntu/Debian)
-Tested on Ubuntu 22.10 but should very well work with Debian and other Linux distros however installation steps may vary. If you have Windows and do not have access to a Linux system, you can now [Install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install)
-
+Tested on Ubuntu 22.10 but should very well work with Debian and other Linux distros however installation steps may vary. If you have Windows and do not have access to a Linux system, you can now [Install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install).
+If you do install Linux on Windows using WSL, choose Ubuntu OS for best compatiblity.
 
 - Install nvm & restart SSH session
 ```Shell
@@ -98,3 +83,9 @@ SNIPECD_EXCLUDE = ["#channel"]
 ```Shell
 pm2 start ecosystem.config.js
 ```
+
+### [Wiki - Guide](https://github.com/mrazishere/Twitch-Chatbot-Deployment/wiki)
+
+## TODO:
+- [ ] Commands documentation
+- [X] Bot Management documentation
