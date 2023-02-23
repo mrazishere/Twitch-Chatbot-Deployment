@@ -27,12 +27,12 @@ exports.customCommands = async function customCommands(client, message, channel,
         return customCommands.hasOwnProperty(commandName);
     }
 
-    function addCommand(commandName, commandResponse) {
+    function addCommand(commandName, modOnly, commandResponse) {
         if (commandExists(commandName)) {
             return `@${tags.username}, That command already exists!`;
         }
 
-        customCommands[commandName] = commandResponse;
+        customCommands[commandName] = [modOnly, commandResponse];
 
         try {
             writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
@@ -59,23 +59,23 @@ exports.customCommands = async function customCommands(client, message, channel,
         return `@${tags.username}, Command removed!`;
     }
 
-    function editCommand(commandName, commandResponse) {
-      if (!commandExists(commandName)) {
-        return `@${tags.username}, That command does not exist!`;
-      }
+    function editCommand(commandName, modOnly, commandResponse) {
+        if (!commandExists(commandName)) {
+            return `@${tags.username}, That command does not exist!`;
+        }
 
-      customCommands[commandName] = commandResponse;
+        customCommands[commandName] = [modOnly, commandResponse];
 
-      try {
-        writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
-      } catch (err) {
-        console.error(err);
-      }
+        try {
+            writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
+        } catch (err) {
+            console.error(err);
+        }
 
-      return `@${tags.username}, Command updated!`;
+        return `@${tags.username}, Command updated!`;
     }
 
-    if (!isModUp && (message.includes("!addcommand") || message.includes("!editcommand") || message.includes("!delcommand") || message.includes("!clist"))) {
+    if (!isModUp && (message.split(" ")[0] === "!addcommand" || message.split(" ")[0] === "!editcommand" || message.split(" ")[0] === "!delcommand" || message.split(" ")[0] === "!clist")) {
         client.say(channel, `@${tags.username}, Custom Commands are for Moderators & above.`);
         return;
     }
@@ -84,7 +84,8 @@ exports.customCommands = async function customCommands(client, message, channel,
     if (message.split(" ")[0] === "!addcommand") {
         const commandWords = message.split(" ");
         const commandName = commandWords[1].toLowerCase();
-        const commandResponse = commandWords.slice(2).join(" ");
+        const modOnly = commandWords[2].toLowerCase();
+        const commandResponse = commandWords.slice(3).join(" ");
 
         // Check if the user is trying to add a command with a name that already exists
         if (commandExists(commandName)) {
@@ -121,10 +122,16 @@ exports.customCommands = async function customCommands(client, message, channel,
                                     client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
                                     return;
                                 } else {
-                                    // Add the command to the JSON file
-                                    const response = addCommand(commandName, commandResponse);
-                                    client.say(channel, response);
-                                    return;
+                                    // modOnly check
+                                    if (modOnly === "true" || modOnly === "false") {
+                                        // Add the command to the JSON file
+                                        const response = addCommand(commandName, modOnly, commandResponse);
+                                        client.say(channel, response);
+                                        return;
+                                    } else {
+                                        client.say(channel, `@${tags.username}, You need to specify modOnly as true or false!`);
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -138,7 +145,8 @@ exports.customCommands = async function customCommands(client, message, channel,
     if (message.split(" ")[0] === "!editcommand") {
         const commandWords = message.split(" ");
         const commandName = commandWords[1].toLowerCase();
-        const commandResponse = commandWords.slice(2).join(" ");
+        const modOnly = commandWords[2].toLowerCase();
+        const commandResponse = commandWords.slice(3).join(" ");
 
         // Check if the user is trying to edit a command with a name that does not exists
         if (!commandExists(commandName)) {
@@ -175,10 +183,16 @@ exports.customCommands = async function customCommands(client, message, channel,
                                     client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
                                     return;
                                 } else {
-                                    // Edit the command and upload to JSON file
-                                    const response = editCommand(commandName, commandResponse);
-                                    client.say(channel, response);
-                                    return;
+                                    // modOnly check
+                                    if (modOnly === "true" || modOnly === "false") {
+                                        // Edit the command and upload to JSON file
+                                        const response = editCommand(commandName, modOnly, commandResponse);
+                                        client.say(channel, response);
+                                        return;
+                                    } else {
+                                        client.say(channel, `@${tags.username}, You need to specify modOnly as true or false!`);
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -219,10 +233,25 @@ exports.customCommands = async function customCommands(client, message, channel,
     }
     // Check if the user is trying to call a custom command
     if (commandExists(message.substring(1)) && message.startsWith('!')) {
-        // Get the response for the custom command
-        const response = customCommands[message.substring(1)];
-        // Send the response to chat
-        client.say(channel, response);
-        return;
+        // Get the modOnly value for the custom command
+        const modOnly = customCommands[message.substring(1)][0];
+        // Check if the command is modOnly and the user is not a mod
+        if (modOnly === "true") {
+            if (isModUp) {
+                // Get the response for the custom command
+                const response = customCommands[message.substring(1)][1];
+                client.say(channel, response);
+                return;
+            } else {
+                client.say(channel, `@${tags.username}, This command is modOnly!`);
+                return;
+            }
+        } else {
+            // Get the response for the custom command
+            const response = customCommands[message.substring(1)][1];
+            // Send the response to chat
+            client.say(channel, response);
+            return;
+        }
     }
 }
