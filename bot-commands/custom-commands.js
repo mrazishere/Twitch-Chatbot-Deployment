@@ -87,14 +87,14 @@ exports.customCommands = async function customCommands(client, message, channel,
         const modOnly = commandWords[2].toLowerCase();
         const commandResponse = commandWords.slice(3).join(" ");
 
-        // Check if the user is trying to add a command with a name that already exists
-        if (commandExists(commandName)) {
-            client.say(channel, `@${tags.username}, That command already exists!`);
+        // Check if the user is trying to add a command without a name
+        if (commandName === "" || commandName === undefined) {
+            client.say(channel, `@${tags.username}, You need to specify a command name!`);
             return;
         } else {
-            // Check if the user is trying to add a command without a name
-            if (commandName === "" || commandName === undefined) {
-                client.say(channel, `@${tags.username}, You need to specify a command name!`);
+            // modOnly check
+            if (modOnly != "true" || modOnly != "false") {
+                client.say(channel, `@${tags.username}, You need to specify modOnly as true or false!`);
                 return;
             } else {
                 // Check if the user is trying to add a command without a response
@@ -122,16 +122,10 @@ exports.customCommands = async function customCommands(client, message, channel,
                                     client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
                                     return;
                                 } else {
-                                    // modOnly check
-                                    if (modOnly === "true" || modOnly === "false") {
-                                        // Add the command to the JSON file
-                                        const response = addCommand(commandName, modOnly, commandResponse);
-                                        client.say(channel, response);
-                                        return;
-                                    } else {
-                                        client.say(channel, `@${tags.username}, You need to specify modOnly as true or false!`);
-                                        return;
-                                    }
+                                    // Add the command to the JSON file
+                                    const response = addCommand(commandName, modOnly, commandResponse);
+                                    client.say(channel, response);
+                                    return;
                                 }
                             }
                         }
@@ -158,39 +152,39 @@ exports.customCommands = async function customCommands(client, message, channel,
                 client.say(channel, `@${tags.username}, You need to specify a command name!`);
                 return;
             } else {
-                // Check if the user is trying to edit a command without a response
-                if (commandResponse === "" || commandResponse === undefined) {
-                    client.say(channel, `@${tags.username}, You need to specify a response!`);
+                // modOnly check
+                if (modOnly != "true" || modOnly != "false") {
+                    client.say(channel, `@${tags.username}, You need to specify modOnly as true or false!`);
                     return;
                 } else {
-                    // Check if the user is trying to edit a command with a response that is too long
-                    if (commandResponse.length > 100) {
-                        client.say(channel, `@${tags.username}, Your response is too long!`);
+                    // Check if the user is trying to edit a command without a response
+                    if (commandResponse === "" || commandResponse === undefined) {
+                        client.say(channel, `@${tags.username}, You need to specify a response!`);
                         return;
                     } else {
-                        // Check if the user is trying to edit a command with a name that is too long
-                        if (commandName.length > 25) {
-                            client.say(channel, `@${tags.username}, Your command name is too long!`);
+                        // Check if the user is trying to edit a command with a response that is too long
+                        if (commandResponse.length > 100) {
+                            client.say(channel, `@${tags.username}, Your response is too long!`);
                             return;
                         } else {
-                            // Check if the user is trying to edit a command with a name that is too short
-                            if (commandName.length < 3) {
-                                client.say(channel, `@${tags.username}, Your command name is too short!`);
+                            // Check if the user is trying to edit a command with a name that is too long
+                            if (commandName.length > 25) {
+                                client.say(channel, `@${tags.username}, Your command name is too long!`);
                                 return;
                             } else {
-                                // Check if the user is trying to edit a command with a name that is not alphanumeric
-                                if (!commandName.match(/^[a-zA-Z0-9]+$/)) {
-                                    client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
+                                // Check if the user is trying to edit a command with a name that is too short
+                                if (commandName.length < 3) {
+                                    client.say(channel, `@${tags.username}, Your command name is too short!`);
                                     return;
                                 } else {
-                                    // modOnly check
-                                    if (modOnly === "true" || modOnly === "false") {
+                                    // Check if the user is trying to edit a command with a name that is not alphanumeric
+                                    if (!commandName.match(/^[a-zA-Z0-9]+$/)) {
+                                        client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
+                                        return;
+                                    } else {
                                         // Edit the command and upload to JSON file
                                         const response = editCommand(commandName, modOnly, commandResponse);
                                         client.say(channel, response);
-                                        return;
-                                    } else {
-                                        client.say(channel, `@${tags.username}, You need to specify modOnly as true or false!`);
                                         return;
                                     }
                                 }
@@ -205,7 +199,6 @@ exports.customCommands = async function customCommands(client, message, channel,
     if (message.split(" ")[0] === "!delcommand") {
         const commandWords = message.split(" ");
         const commandName = commandWords[1].toLowerCase();
-        const commandResponse = commandWords.slice(2).join(" ");
 
         // Check if the user is trying to remove a command that doesn't exist
         if (!commandExists(commandName)) {
@@ -243,7 +236,7 @@ exports.customCommands = async function customCommands(client, message, channel,
                 client.say(channel, response);
                 return;
             } else {
-                client.say(channel, `@${tags.username}, This command is modOnly!`);
+                //client.say(channel, `@${tags.username}, This command is modOnly!`);
                 return;
             }
         } else {
