@@ -93,7 +93,7 @@ exports.customCommands = async function customCommands(client, message, channel,
             return;
         } else {
             // modOnly check
-            if (modOnly != "t" || modOnly != "f") {
+            if (modOnly != "t" && modOnly != "f") {
                 client.say(channel, `@${tags.username}, You need to specify whether this is modOnly(t/f) command`);
                 return;
             } else {
@@ -153,7 +153,7 @@ exports.customCommands = async function customCommands(client, message, channel,
                 return;
             } else {
                 // modOnly check
-                if (modOnly != "t" || modOnly != "f") {
+                if (modOnly != "t" && modOnly != "f") {
                     client.say(channel, `@${tags.username}, You need to specify whether this is modOnly(t/f) command`);
                     return;
                 } else {
