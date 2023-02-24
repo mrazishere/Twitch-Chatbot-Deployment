@@ -83,8 +83,8 @@ exports.customCommands = async function customCommands(client, message, channel,
 
     if (message.split(" ")[0] === "!addcommand") {
         const commandWords = message.split(" ");
-        const commandName = commandWords[1].toLowerCase();
-        const modOnly = commandWords[2].toLowerCase();
+        const modOnly = commandWords[1].toLowerCase();
+        const commandName = commandWords[2].toLowerCase();
         const commandResponse = commandWords.slice(3).join(" ");
 
         // Check if the user is trying to add a command without a name
@@ -93,8 +93,8 @@ exports.customCommands = async function customCommands(client, message, channel,
             return;
         } else {
             // modOnly check
-            if (modOnly != "true" || modOnly != "false") {
-                client.say(channel, `@${tags.username}, You need to specify modOnly as true or false!`);
+            if (modOnly != "t" || modOnly != "f") {
+                client.say(channel, `@${tags.username}, You need to specify whether this is modOnly(t/f) command`);
                 return;
             } else {
                 // Check if the user is trying to add a command without a response
@@ -138,8 +138,8 @@ exports.customCommands = async function customCommands(client, message, channel,
 
     if (message.split(" ")[0] === "!editcommand") {
         const commandWords = message.split(" ");
-        const commandName = commandWords[1].toLowerCase();
-        const modOnly = commandWords[2].toLowerCase();
+        const modOnly = commandWords[1].toLowerCase();
+        const commandName = commandWords[2].toLowerCase();
         const commandResponse = commandWords.slice(3).join(" ");
 
         // Check if the user is trying to edit a command with a name that does not exists
@@ -153,8 +153,8 @@ exports.customCommands = async function customCommands(client, message, channel,
                 return;
             } else {
                 // modOnly check
-                if (modOnly != "true" || modOnly != "false") {
-                    client.say(channel, `@${tags.username}, You need to specify modOnly as true or false!`);
+                if (modOnly != "t" || modOnly != "f") {
+                    client.say(channel, `@${tags.username}, You need to specify whether this is modOnly(t/f) command`);
                     return;
                 } else {
                     // Check if the user is trying to edit a command without a response
@@ -229,7 +229,7 @@ exports.customCommands = async function customCommands(client, message, channel,
         // Get the modOnly value for the custom command
         const modOnly = customCommands[message.substring(1)][0];
         // Check if the command is modOnly and the user is not a mod
-        if (modOnly === "true") {
+        if (modOnly === "t") {
             if (isModUp) {
                 // Get the response for the custom command
                 const response = customCommands[message.substring(1)][1];
