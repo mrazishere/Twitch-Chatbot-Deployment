@@ -28,12 +28,12 @@ exports.customCommands = async function customCommands(client, message, channel,
     }
 
     // Add command function that stores the commandName, modOnly, and commandResponse and the number of times it has been used and saves it to the JSON file
-    function addCommand(commandName, modOnly, commandResponse) {
+    function addCommand(commandName, modOnly, commandResponse, commandCounter) {
         if (commandExists(commandName)) {
             return `@${tags.username}, That command already exists!`;
         }
-
-        customCommands[commandName] = [modOnly, commandResponse, 0];
+        var commandCounter = 0;
+        customCommands[commandName] = [modOnly, commandResponse, commandCounter];
 
         try {
             writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
@@ -62,12 +62,12 @@ exports.customCommands = async function customCommands(client, message, channel,
 
     // Retrieve the number of times a command has been used
     // Edit command function that stores the commandName, modOnly, and commandResponse but does not change the number of times it has been used and saves it to the JSON file
-    function editCommand(commandName, modOnly, commandResponse) {
+    function editCommand(commandName, modOnly, commandResponse, commandCounter) {
         if (!commandExists(commandName)) {
             return `@${tags.username}, That command does not exist!`;
         }
-        commandUsed = customCommands[commandName][2];
-        customCommands[commandName] = [modOnly, commandResponse, commandUsed];
+        commandCounter = customCommands[commandName][2];
+        customCommands[commandName] = [modOnly, commandResponse, commandCounter];
 
         try {
             writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
@@ -75,7 +75,9 @@ exports.customCommands = async function customCommands(client, message, channel,
             console.error(err);
         }
 
-        return `@${tags.username}, Command updated!`;
+        if (input[0] === "!editcommand") {
+            return `@${tags.username}, Command updated!`;
+        }
     }
 
     input = message.split(" ");
@@ -89,6 +91,7 @@ exports.customCommands = async function customCommands(client, message, channel,
         const modOnly = input[1].toLowerCase();
         const commandName = input[2].toLowerCase();
         const commandResponse = input.slice(3).join(" ");
+        const commandCounter = 0;
 
         // Check if the user is trying to add a command without a name
         if (commandName === "" || commandName === undefined) {
@@ -126,7 +129,7 @@ exports.customCommands = async function customCommands(client, message, channel,
                                     return;
                                 } else {
                                     // Add the command to the JSON file
-                                    const response = addCommand(commandName, modOnly, commandResponse);
+                                    const response = addCommand(commandName, modOnly, commandResponse, commandCounter);
                                     client.say(channel, response);
                                     return;
                                 }
@@ -143,6 +146,7 @@ exports.customCommands = async function customCommands(client, message, channel,
         const modOnly = input[1].toLowerCase();
         const commandName = input[2].toLowerCase();
         const commandResponse = input.slice(3).join(" ");
+        const commandCounter = customCommands[commandName][2];
 
         // Check if the user is trying to edit a command with a name that does not exists
         if (!commandExists(commandName)) {
@@ -185,7 +189,7 @@ exports.customCommands = async function customCommands(client, message, channel,
                                         return;
                                     } else {
                                         // Edit the command and upload to JSON file
-                                        const response = editCommand(commandName, modOnly, commandResponse);
+                                        const response = editCommand(commandName, modOnly, commandResponse, commandCounter);
                                         client.say(channel, response);
                                         return;
                                     }
@@ -226,9 +230,16 @@ exports.customCommands = async function customCommands(client, message, channel,
         }
     }
     // Check if the user is trying to call a custom command
+    // Get the number of times the command has been called and add 1
     if (commandExists(input[0].substring(1)) && input[0].startsWith('!')) {
         // Get the modOnly value for the custom command
         const modOnly = customCommands[input[0].substring(1)][0];
+
+        const commandCounter = customCommands[input[0].substring(1)][2];
+        commandCounter++
+
+        // Update the JSON file with the new commandUsed value
+        editCommandUsed(input[0].substring(1), commandCounter);
 
         // Check if the command is modOnly and the user is not a mod
         if (modOnly === "t") {
