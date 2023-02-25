@@ -240,14 +240,18 @@ exports.customCommands = async function customCommands(client, message, channel,
         commandCounterNew = commandCounter + 1;
 
         // Update the JSON file with the new commandUsed value
-        const response = editCommand(input[0].substring(1), modOnly, commandResponse, commandCounterNew);
-        console.log(response);
+        editCommand(input[0].substring(1), modOnly, commandResponse, commandCounterNew);
+
+        const response = customCommands[input[0].substring(1)][1];
+        if (response.includes("$counter")) {
+            var response1 = response.replace("$counter", commandCounterNew);
+        } else {
+            var response1 = response;
+        }
 
         // Check if the command is modOnly and the user is not a mod
         if (modOnly === "t") {
             if (isModUp) {
-                // Get the response for the custom command
-                const response1 = customCommands[input[0].substring(1)][1];
                 client.say(channel, response1);
                 return;
             } else {
@@ -255,9 +259,6 @@ exports.customCommands = async function customCommands(client, message, channel,
                 return;
             }
         } else {
-            // Get the response for the custom command
-            const response1 = customCommands[input[0].substring(1)][1];
-            // Send the response to chat
             client.say(channel, response1);
             return;
         }
