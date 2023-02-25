@@ -12,4 +12,4 @@ This project allows deployment of Twitch chatbot for multiple channels running o
 ## TODO:
 - [X] Bot Management documentation
 - [ ] Commands documentation
-- [ ] Quick re-deploy using new-template.js(for command changes)
+- [X] Quick re-deploy(any changes to new-template.js will be applied to all bot instances in channels folder)
