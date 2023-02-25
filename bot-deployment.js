@@ -260,7 +260,7 @@ module.exports = {
       var removeUser = `${tags.username}`;
       if (isModUp && input.length == 2) {
         removeUser = input[1].toLowerCase();
-        console.log(`@${tags.username} performed !addme as mod for ${removeUser}`);
+        console.log(`@${tags.username} performed !removeme as mod for ${removeUser}`);
       }
       exec(`pm2 ls | grep "${removeUser}"`, (error, stdout, stderr) => {
         if (error) {
