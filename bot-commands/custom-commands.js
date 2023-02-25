@@ -66,7 +66,7 @@ exports.customCommands = async function customCommands(client, message, channel,
         if (!commandExists(commandName)) {
             return `@${tags.username}, That command does not exist!`;
         }
-        commandCounter = customCommands[commandName][2];
+
         customCommands[commandName] = [modOnly, commandResponse, commandCounter];
 
         try {
@@ -234,19 +234,21 @@ exports.customCommands = async function customCommands(client, message, channel,
     if (commandExists(input[0].substring(1)) && input[0].startsWith('!')) {
         // Get the modOnly value for the custom command
         const modOnly = customCommands[input[0].substring(1)][0];
+        const commandResponse = customCommands[input[0].substring(1)][1];
 
         const commandCounter = customCommands[input[0].substring(1)][2];
-        commandCounter++
+        commandCounterNew = commandCounter + 1;
 
         // Update the JSON file with the new commandUsed value
-        editCommandUsed(input[0].substring(1), commandCounter);
+        const response = editCommand(input[0].substring(1), modOnly, commandResponse, commandCounterNew);
+        console.log(response);
 
         // Check if the command is modOnly and the user is not a mod
         if (modOnly === "t") {
             if (isModUp) {
                 // Get the response for the custom command
-                const response = customCommands[input[0].substring(1)][1];
-                client.say(channel, response);
+                const response1 = customCommands[input[0].substring(1)][1];
+                client.say(channel, response1);
                 return;
             } else {
                 //client.say(channel, `@${tags.username}, This command is modOnly!`);
@@ -254,9 +256,9 @@ exports.customCommands = async function customCommands(client, message, channel,
             }
         } else {
             // Get the response for the custom command
-            const response = customCommands[input[0].substring(1)][1];
+            const response1 = customCommands[input[0].substring(1)][1];
             // Send the response to chat
-            client.say(channel, response);
+            client.say(channel, response1);
             return;
         }
     }
