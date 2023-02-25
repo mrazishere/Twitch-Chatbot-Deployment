@@ -144,10 +144,10 @@ async function main() {
       max_memory_restart: '100M',
     }
   ]`;
-              });
+                });
                 // Write the modified string back to the file
-                fs.writeFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, config, 'utf8');  
-              } catch(err) {
+                fs.writeFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, config, 'utf8');
+              } catch (err) {
                 config = `
 module.exports = {
   apps: [
@@ -320,12 +320,45 @@ module.exports = {
       return;
     }
 
-    if (message.includes("!addme")) {
+    // Redeploy bot Function
+    // Check if user is mod or owner
+    // Look through all the files in the channels folder excluding ecosystem.config.js and new-template.js
+    // Copy the contents of new-template.js to these files and modify $$UPDATEHERE$$ to the channel name
+    async function redeploy() {
+      if (!isModUp) {
+        client.say(channel, "Error: You are not a mod");
+        return;
+      }
+      var files = fs.readdirSync(`${process.env.BOT_FULL_PATH}/channels`);
+      files.forEach((file) => {
+        if (file != "ecosystem.config.js" && file != "new-template.js" && file != ".gitignore") {
+          var data = fs.readFileSync(
+            `${process.env.BOT_FULL_PATH}/channels/new-template.js`,
+            "utf8"
+          );
+          var channelname = file.replace(".js", "");
+          var result = data.replace(/\$\$UPDATEHERE\$\$/g, "#" + channelname);
+          fs.writeFileSync(
+            `${process.env.BOT_FULL_PATH}/channels/${file}`,
+            result,
+            "utf8"
+          );
+        }
+      });
+      client.say(channel, "Redeployed all bots");
+      return;
+    }
+
+    if (message.split(" ")[0] === "!addme") {
       addme();
     }
 
-    if (message.includes("!removeme")) {
+    if (message.split(" ")[0] === "!removeme") {
       removeme();
+    }
+
+    if (message.split(" ")[0] === "!redeploy") {
+      redeploy();
     }
 
   });
