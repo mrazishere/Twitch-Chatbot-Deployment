@@ -21,7 +21,7 @@ async function sleep(ms) {
 }
 
 exports.catfacts = async function catfacts(client, message, channel, tags) {
-  input = message.slice(10);
+  input = message.split(" ");
   const fetchResponse = await fetch('https://meowfacts.herokuapp.com/', { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
     .then(response => {
       if (response.ok) {
@@ -29,7 +29,7 @@ exports.catfacts = async function catfacts(client, message, channel, tags) {
           var outputArr = JSON.parse(JSON.stringify(data));
           var output = outputArr['data'][0];
           sleep(1000);
-          if (input === "") {
+          if (!input[1]) {
             //console.log(output);
             client.say(channel, `@${tags.username}, ` + output);
           } else {

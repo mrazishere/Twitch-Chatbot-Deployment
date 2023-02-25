@@ -21,7 +21,7 @@ async function sleep(ms) {
 }
 
 exports.anime = async function anime(client, message, channel, tags) {
-  input = message.slice(7);
+  input = message.split(" ");
   const fetchResponse = await fetch('https://animechan.vercel.app/api/random', { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
     .then(response => {
       if (response.ok) {
@@ -31,7 +31,7 @@ exports.anime = async function anime(client, message, channel, tags) {
           var output2 = outputArr['character'];
           var output3 = outputArr['quote'];
           sleep(1000);
-          if (input === "") {
+          if (!input[1]) {
             client.say(channel, `@${tags.username}, ` + output3 + " ~ " + output2 + " from " + output1);
           } else {
             client.say(channel, `@${tags.username}, this command does not accept any inputs.`);

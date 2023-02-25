@@ -21,8 +21,8 @@ async function sleep(ms) {
 }
 
 exports.dad = async function dad(client, message, channel, tags) {
-  input = message.slice(5);
-  if (input === "") {
+  input = message.split(" ");
+  if (!input[1]) {
     const fetchResponse = await fetch('https://icanhazdadjoke.com/', { method: 'GET', headers: { 'accept': 'text/plain', 'content-type': 'text/plain' } })
       .then(response => {
         if (response.ok) {
@@ -40,29 +40,29 @@ exports.dad = async function dad(client, message, channel, tags) {
         console.log(error);
       });
   } else {
-    const fetchResponse = await fetch('https://icanhazdadjoke.com/search?term=' + input, { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
-    .then(response => {
-      if (response.ok) {
-        response.json().then((data) => {
-          var outputArr = JSON.parse(JSON.stringify(data));
-          sleep(1000);
-          if (outputArr['total_jokes'] == 0) {
-            //console.log("No Jokes found");
-            client.say(channel, "Sorry, nothing found with the search term: " + input);
-          } else {
-            var random = Math.floor(Math.random() * outputArr['results'].length);
-            //console.log(outputArr['results'][random]['joke']);
-            client.say(channel, `@${tags.username}, ` + outputArr['results'][random]['joke']);
-          }
-        });
-      } else {
-        client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
-      }
-    }).
-    catch(error => {
-      console.log(error);
-    });
-}
-return;
+    const fetchResponse = await fetch('https://icanhazdadjoke.com/search?term=' + input[1], { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
+      .then(response => {
+        if (response.ok) {
+          response.json().then((data) => {
+            var outputArr = JSON.parse(JSON.stringify(data));
+            sleep(1000);
+            if (outputArr['total_jokes'] == 0) {
+              //console.log("No Jokes found");
+              client.say(channel, "Sorry, nothing found with the search term: " + input[1]);
+            } else {
+              var random = Math.floor(Math.random() * outputArr['results'].length);
+              //console.log(outputArr['results'][random]['joke']);
+              client.say(channel, `@${tags.username}, ` + outputArr['results'][random]['joke']);
+            }
+          });
+        } else {
+          client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
+        }
+      }).
+      catch(error => {
+        console.log(error);
+      });
+  }
+  return;
 }
 

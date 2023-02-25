@@ -20,11 +20,11 @@ async function sleep(ms) {
 }
 
 exports.yoda = async function yoda(client, message, channel, tags) {
-  input = message.slice(6);
-  if (input === "") {
+  input = message.split(" ");
+  if (!input[1]) {
     client.say(channel, 'No input provided, !yoda<SPACE>Text to be translated');
   } else {
-    const fetchResponse = await fetch('http://api.funtranslations.com/translate/yoda?text=' + input, { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json', 'X-Funtranslations-Api-Secret': `${process.env.API_FUNTRANSLATION_SECRET}` } })
+    const fetchResponse = await fetch('http://api.funtranslations.com/translate/yoda?text=' + input[1], { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json', 'X-Funtranslations-Api-Secret': `${process.env.API_FUNTRANSLATION_SECRET}` } })
       .then(response => {
         if (response.ok) {
           response.json().then((data) => {

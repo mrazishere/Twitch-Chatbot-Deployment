@@ -21,8 +21,8 @@ async function sleep(ms) {
 }
 
 exports.advice = async function advice(client, message, channel, tags) {
-  input = message.slice(8);
-  if (input === "") {
+  input = message.split(" ");
+  if (!input[1]) {
     const fetchResponse = await fetch('https://api.adviceslip.com/advice', { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
       .then(response => {
         if (response.ok) {
@@ -39,7 +39,7 @@ exports.advice = async function advice(client, message, channel, tags) {
         console.log(error);
       });
   } else {
-    const fetchResponse = await fetch('https://api.adviceslip.com/advice/search/' + input, { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
+    const fetchResponse = await fetch('https://api.adviceslip.com/advice/search/' + input[1], { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
       .then(response => {
         if (response.ok) {
           response.json().then((data) => {
@@ -49,7 +49,7 @@ exports.advice = async function advice(client, message, channel, tags) {
               var random = Math.floor(Math.random() * outputArr['slips'].length);
               client.say(channel, `@${tags.username}, ` + outputArr['slips'][random]['advice']);
             } else {
-              client.say(channel, "Sorry, nothing found with the search term: " + input);
+              client.say(channel, "Sorry, nothing found with the search term: " + input[1]);
             }
           });
         } else {

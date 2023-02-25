@@ -75,17 +75,17 @@ exports.customCommands = async function customCommands(client, message, channel,
         return `@${tags.username}, Command updated!`;
     }
 
-    if (!isModUp && (message.split(" ")[0] === "!addcommand" || message.split(" ")[0] === "!editcommand" || message.split(" ")[0] === "!delcommand" || message.split(" ")[0] === "!clist")) {
+    input = message.split(" ");
+
+    if (!isModUp && (input[0] === "!addcommand" || input[0] === "!editcommand" || input[0] === "!delcommand" || input[0] === "!clist")) {
         client.say(channel, `@${tags.username}, Custom Commands are for Moderators & above.`);
         return;
     }
 
-
-    if (message.split(" ")[0] === "!addcommand") {
-        const commandWords = message.split(" ");
-        const modOnly = commandWords[1].toLowerCase();
-        const commandName = commandWords[2].toLowerCase();
-        const commandResponse = commandWords.slice(3).join(" ");
+    if (input[0] === "!addcommand") {
+        const modOnly = input[1].toLowerCase();
+        const commandName = input[2].toLowerCase();
+        const commandResponse = input.slice(3).join(" ");
 
         // Check if the user is trying to add a command without a name
         if (commandName === "" || commandName === undefined) {
@@ -136,11 +136,10 @@ exports.customCommands = async function customCommands(client, message, channel,
     }
 
 
-    if (message.split(" ")[0] === "!editcommand") {
-        const commandWords = message.split(" ");
-        const modOnly = commandWords[1].toLowerCase();
-        const commandName = commandWords[2].toLowerCase();
-        const commandResponse = commandWords.slice(3).join(" ");
+    if (input[0] === "!editcommand") {
+        const modOnly = input[1].toLowerCase();
+        const commandName = input[2].toLowerCase();
+        const commandResponse = input.slice(3).join(" ");
 
         // Check if the user is trying to edit a command with a name that does not exists
         if (!commandExists(commandName)) {
@@ -196,9 +195,8 @@ exports.customCommands = async function customCommands(client, message, channel,
         }
     }
 
-    if (message.split(" ")[0] === "!delcommand") {
-        const commandWords = message.split(" ");
-        const commandName = commandWords[1].toLowerCase();
+    if (input[0] === "!delcommand") {
+        const commandName = input[1].toLowerCase();
 
         // Check if the user is trying to remove a command that doesn't exist
         if (!commandExists(commandName)) {
@@ -211,7 +209,7 @@ exports.customCommands = async function customCommands(client, message, channel,
             return;
         }
     }
-    if (message.split(" ")[0] === "!clist") {
+    if (input[0] === "!clist") {
         // Get the list of custom commands
         const commandList = Object.keys(customCommands);
         // Check if there are any custom commands
@@ -225,14 +223,14 @@ exports.customCommands = async function customCommands(client, message, channel,
         }
     }
     // Check if the user is trying to call a custom command
-    if (commandExists(message.substring(1)) && message.startsWith('!')) {
+    if (commandExists(input[0].substring(1)) && input[0].startsWith('!')) {
         // Get the modOnly value for the custom command
-        const modOnly = customCommands[message.substring(1)][0];
+        const modOnly = customCommands[input[0].substring(1)][0];
         // Check if the command is modOnly and the user is not a mod
         if (modOnly === "t") {
             if (isModUp) {
                 // Get the response for the custom command
-                const response = customCommands[message.substring(1)][1];
+                const response = customCommands[input[0].substring(1)][1];
                 client.say(channel, response);
                 return;
             } else {
@@ -241,7 +239,7 @@ exports.customCommands = async function customCommands(client, message, channel,
             }
         } else {
             // Get the response for the custom command
-            const response = customCommands[message.substring(1)][1];
+            const response = customCommands[input[0].substring(1)][1];
             // Send the response to chat
             client.say(channel, response);
             return;

@@ -120,23 +120,25 @@ async function main() {
     commands["customCommands"](client, message, channel, tags);
     commands["translate"](client, message, channel, tags);
 
-    if (message.includes("!advice")) {
+    input = message.split(" ");
+
+    if (input[0] === "!advice") {
       commands["advice"](client, message, channel, tags);
     }
 
-    if (message.includes("!anime")) {
+    if (input[0] === "!anime") {
       commands["anime"](client, message, channel, tags);
     }
 
-    if (message.includes("!catfacts")) {
+    if (input[0] === "!catfacts") {
       commands["catfacts"](client, message, channel, tags);
     }
 
-    if (message.includes("!clock")) {
+    if (input === "!clock") {
       commands["clock"](client, message, channel, tags);
     }
 
-    if (message.includes("!settimezone")) {
+    if (input[0] === "!settimezone") {
       if (isModUp) {
         commands["settimezone"](client, message, channel, tags);
       } else {
@@ -145,40 +147,39 @@ async function main() {
       }
     }
 
-    if (message.includes("!dad")) {
-      if (message.includes("!daddy")) {
-        return;
-      } else {
-        commands["dad"](client, message, channel, tags);
-      }
+    if (input[0] === "!dad") {
+      commands["dad"](client, message, channel, tags);
     }
 
-    // API Currently broken - under monitoring before removal
-    if (message.includes("!dogfacts")) {
+    if (input[0] === "!define") {
+      commands["dictionary"](client, message, channel, tags);
+    }
+
+    if (input[0] === "!dogfacts") {
       commands["dogfacts"](client, message, channel, tags);
     }
 
-    if (message.includes("!forex")) {
+    if (input[0] === "!forex") {
       commands["forex"](client, message, channel, tags);
     }
 
-    if (message.includes("!jokes")) {
+    if (input[0] === "!jokes") {
       commands["jokes"](client, message, channel, tags);
     }
 
-    if (message.includes("!numfacts")) {
+    if (input[0] === "!numfacts") {
       commands["numfacts"](client, message, channel, tags);
     }
 
-    if (message.includes("!mm")) {
+    if (input[0] === "!mm") {
       commands["partyMatchmaking"](client, channel, message, tags);
     }
 
-    if (message.includes("!pokecatch")) {
+    if (input === "!pokecatch") {
       commands["pokecatch"](client, message, channel, tags);
     }
 
-    if (message.includes("!snipecd")) {
+    if (input[0] === "!snipecd") {
       if (isModUp) {
         commands["countDown"](client, channel, message, tags);
       } else {
@@ -187,12 +188,12 @@ async function main() {
       }
     }
 
-    if (message.includes("!yoda")) {
+    if (input[0] === "!yoda") {
       commands["yoda"](client, message, channel, tags);
     }
 
     // Commands without dedicated .js files
-    if (message === "!ping") {
+    if (input === "!ping") {
       async function ping() {
         client.say(channel, `pong!`);
       }

@@ -20,25 +20,25 @@ async function sleep(ms) {
 }
 
 exports.pokecatch = async function pokecatch(client, message, channel, tags) {
-    input = message.slice(11);
-    if (input === "") {
-      const fetchResponse = await fetch('https://us-central1-caffs-personal-projects.cloudfunctions.net/pokeselect', { method: 'GET', headers: { 'accept': 'text/plain', 'content-type': 'text/plain' } })
-        .then(response => {
-          if (response.ok) {
-            response.text().then((data) => {
-              sleep(1000);
-              output = data.slice(0, data.search("https"));
-              client.say(channel, `@${tags.username}, ` + output);
-            });
-          } else {
-            client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
-          }
-        }).
-        catch(error => {
-          console.log(error);
-        });
-    } else {
-      client.say(channel, "No input required, just do !catch");
-    }
-    return;
-  }  
+  input = message.split(" ");
+  if (!input[1]) {
+    const fetchResponse = await fetch('https://us-central1-caffs-personal-projects.cloudfunctions.net/pokeselect', { method: 'GET', headers: { 'accept': 'text/plain', 'content-type': 'text/plain' } })
+      .then(response => {
+        if (response.ok) {
+          response.text().then((data) => {
+            sleep(1000);
+            output = data.slice(0, data.search("https"));
+            client.say(channel, `@${tags.username}, ` + output);
+          });
+        } else {
+          client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
+        }
+      }).
+      catch(error => {
+        console.log(error);
+      });
+  } else {
+    client.say(channel, "No input required, just do !pokecatch");
+  }
+  return;
+}  

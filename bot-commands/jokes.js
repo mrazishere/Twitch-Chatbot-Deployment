@@ -21,8 +21,8 @@ async function sleep(ms) {
 }
 
 exports.jokes = async function jokes(client, message, channel, tags) {
-  input = message.slice(7);
-  if (input === "") {
+  input = message.split(" ");
+  if (!input[1]) {
     const fetchResponse = await fetch('https://v2.jokeapi.dev/joke/Any?safe-mode', { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
       .then(response => {
         if (response.ok) {
@@ -50,7 +50,7 @@ exports.jokes = async function jokes(client, message, channel, tags) {
         console.log(error);
       });
   } else {
-    const fetchResponse = await fetch('https://v2.jokeapi.dev/joke/Any?safe-mode&contains=' + input, { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
+    const fetchResponse = await fetch('https://v2.jokeapi.dev/joke/Any?safe-mode&contains=' + input[1], { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
       .then(response => {
         if (response.ok) {
           response.json().then((data) => {
@@ -63,7 +63,7 @@ exports.jokes = async function jokes(client, message, channel, tags) {
             var error = outputArr['error'];
             sleep(1000);
             if (error) {
-              client.say(channel, "Sorry, nothing found with the search term: " + input);
+              client.say(channel, "Sorry, nothing found with the search term: " + input[1]);
             } else {
               if (type == "twopart") {
                 client.say(channel, `@${tags.username}, ` + setup);
