@@ -27,12 +27,13 @@ exports.customCommands = async function customCommands(client, message, channel,
         return customCommands.hasOwnProperty(commandName);
     }
 
+    // Add command function that stores the commandName, modOnly, and commandResponse and the number of times it has been used and saves it to the JSON file
     function addCommand(commandName, modOnly, commandResponse) {
         if (commandExists(commandName)) {
             return `@${tags.username}, That command already exists!`;
         }
 
-        customCommands[commandName] = [modOnly, commandResponse];
+        customCommands[commandName] = [modOnly, commandResponse, 0];
 
         try {
             writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
@@ -59,12 +60,14 @@ exports.customCommands = async function customCommands(client, message, channel,
         return `@${tags.username}, Command removed!`;
     }
 
+    // Retrieve the number of times a command has been used
+    // Edit command function that stores the commandName, modOnly, and commandResponse but does not change the number of times it has been used and saves it to the JSON file
     function editCommand(commandName, modOnly, commandResponse) {
         if (!commandExists(commandName)) {
             return `@${tags.username}, That command does not exist!`;
         }
-
-        customCommands[commandName] = [modOnly, commandResponse];
+        commandUsed = customCommands[commandName][2];
+        customCommands[commandName] = [modOnly, commandResponse, commandUsed];
 
         try {
             writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
@@ -226,6 +229,7 @@ exports.customCommands = async function customCommands(client, message, channel,
     if (commandExists(input[0].substring(1)) && input[0].startsWith('!')) {
         // Get the modOnly value for the custom command
         const modOnly = customCommands[input[0].substring(1)][0];
+
         // Check if the command is modOnly and the user is not a mod
         if (modOnly === "t") {
             if (isModUp) {
