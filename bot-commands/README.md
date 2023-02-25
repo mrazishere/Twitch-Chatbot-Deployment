@@ -3,7 +3,9 @@
 - anime
 - catfacts
 - clock
+- custom commands
 - dadjokes
+- dictionary
 - dogfacts
 - forex
 - jokes
