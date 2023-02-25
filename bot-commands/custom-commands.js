@@ -216,6 +216,44 @@ exports.customCommands = async function customCommands(client, message, channel,
             return;
         }
     }
+
+    // Create command to update commandCounter
+    if (input[0] === "!updatecounter") {
+        const commandName = input[1].toLowerCase();
+        const modOnly = customCommands[commandName][0];
+        const commandResponse = customCommands[commandName][1];
+        const commandCounterNew = Number(input[2]);
+
+        // Check if the user is trying to update a command without a name
+        if (commandName === "" || commandName === undefined) {
+            client.say(channel, `@${tags.username}, You need to specify a command name!`);
+            return;
+        } else {
+            // Check if the user is trying to update a command without a counter
+            if (commandCounterNew === "" || commandCounterNew === undefined) {
+                client.say(channel, `@${tags.username}, You need to specify a counter!`);
+                return;
+            } else {
+                // Check if the user is trying to update a command with a counter that is not a full integer
+                if (!Number.isInteger(commandCounterNew)) {
+                    client.say(channel, `@${tags.username}, Your counter must be a number!`);
+                    return;
+                } else {
+                    // Check if the user is trying to update a command that doesn't exist
+                    if (!commandExists(commandName)) {
+                        client.say(channel, `@${tags.username}, That command doesn't exist!`);
+                        return;
+                    } else {
+                        // Update the commandCounter
+                        editCommand(commandName, modOnly, commandResponse, commandCounterNew);
+                        client.say(channel, `@${tags.username}, Counter updated!`);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     if (input[0] === "!clist") {
         // Get the list of custom commands
         const commandList = Object.keys(customCommands);
@@ -232,7 +270,8 @@ exports.customCommands = async function customCommands(client, message, channel,
     // Check if the user is trying to call a custom command
     // Get the number of times the command has been called and add 1
     if (commandExists(input[0].substring(1)) && input[0].startsWith('!')) {
-        // Get the modOnly value for the custom command
+        // Get the command value for the custom command
+        const commandName = commandExists(input[0].substring(1));
         const modOnly = customCommands[input[0].substring(1)][0];
         const commandResponse = customCommands[input[0].substring(1)][1];
 
