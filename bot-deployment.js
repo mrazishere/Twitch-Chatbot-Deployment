@@ -324,6 +324,7 @@ module.exports = {
     // Check if user is mod or owner
     // Look through all the files in the channels folder excluding ecosystem.config.js and new-template.js
     // Copy the contents of new-template.js to these files and modify $$UPDATEHERE$$ to the channel name
+    // Restart the bot
     async function redeploy() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -343,9 +344,20 @@ module.exports = {
             result,
             "utf8"
           );
+          exec(`pm2 restart "${channelname}"`, (error, stdout, stderr) => {
+            if (error) {
+              console.log(`error: ${error.message}`);
+              return;
+            }
+            if (stderr) {
+              console.log(`stderr: ${stderr}`);
+              return;
+            }
+            console.log(`stdout: ${stdout}`);
+          });
         }
       });
-      client.say(channel, "Redeployed all bots");
+      client.say(channel, "Redeployed & restarted all bots");
       return;
     }
 
