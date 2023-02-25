@@ -106,3 +106,4 @@ dist
 # Script data
 channel_timezone.js
 matchmaking.json
+package-lock.json

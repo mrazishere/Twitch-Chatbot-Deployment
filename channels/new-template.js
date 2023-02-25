@@ -192,21 +192,6 @@ async function main() {
     }
 
     // Commands without dedicated .js files
-    if (message === "!play to get in the race!") {
-      async function marbles() {
-        await sleep(4200);
-        client.say(channel, `!play`);
-      }
-      marbles();
-    }
-
-    if (message === "The restaurant is now open for visitors! You can type !visit") {
-      async function plateup() {
-        client.say(channel, `!visit`);
-      }
-      plateup();
-    }
-
     if (message === "!ping") {
       async function ping() {
         client.say(channel, `pong!`);
