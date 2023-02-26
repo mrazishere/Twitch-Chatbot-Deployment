@@ -263,7 +263,7 @@ exports.customCommands = async function customCommands(client, message, channel,
             return;
         } else {
             // Send the list of custom commands to chat
-            client.say(channel, `@${tags.username}, Custom Commands: "${commandList.join('", "')}"`);
+            client.say(channel, `@${tags.username}, Custom Commands: "!${commandList.join('", "!')}"`);
             return;
         }
     }
