@@ -75,19 +75,20 @@ exports.customCommands = async function customCommands(client, message, channel,
             console.error(err);
         }
 
-        if (input[0] === "!editcommand") {
+        // Respond only when called by !ecomm
+        if (input[0] === "!ecomm") {
             return `@${tags.username}, Command updated!`;
         }
     }
 
     input = message.split(" ");
 
-    if (!isModUp && (input[0] === "!addcommand" || input[0] === "!editcommand" || input[0] === "!delcommand" || input[0] === "!clist")) {
+    if (!isModUp && (input[0] === "!acomm" || input[0] === "!ecomm" || input[0] === "!dcomm" || input[0] === "!countcomm")) {
         client.say(channel, `@${tags.username}, Custom Commands are for Moderators & above.`);
         return;
     }
 
-    if (input[0] === "!addcommand") {
+    if (input[0] === "!acomm") {
         const modOnly = input[1].toLowerCase();
         const commandName = input[2].toLowerCase();
         const commandResponse = input.slice(3).join(" ");
@@ -142,7 +143,7 @@ exports.customCommands = async function customCommands(client, message, channel,
     }
 
 
-    if (input[0] === "!editcommand") {
+    if (input[0] === "!ecomm") {
         const modOnly = input[1].toLowerCase();
         const commandName = input[2].toLowerCase();
         const commandResponse = input.slice(3).join(" ");
@@ -202,7 +203,7 @@ exports.customCommands = async function customCommands(client, message, channel,
         }
     }
 
-    if (input[0] === "!delcommand") {
+    if (input[0] === "!dcomm") {
         const commandName = input[1].toLowerCase();
 
         // Check if the user is trying to remove a command that doesn't exist
@@ -218,7 +219,7 @@ exports.customCommands = async function customCommands(client, message, channel,
     }
 
     // Create command to update commandCounter
-    if (input[0] === "!updatecounter") {
+    if (input[0] === "!countcomm") {
         const commandName = input[1].toLowerCase();
         const commandCounterNew = Number(input[2]);
 
@@ -254,7 +255,7 @@ exports.customCommands = async function customCommands(client, message, channel,
         }
     }
 
-    if (input[0] === "!clist") {
+    if (input[0] === "!lcomm") {
         // Get the list of custom commands
         const commandList = Object.keys(customCommands);
         // Check if there are any custom commands
@@ -278,12 +279,30 @@ exports.customCommands = async function customCommands(client, message, channel,
         const commandCounter = customCommands[input[0].substring(1)][2];
         commandCounterNew = commandCounter + 1;
 
-        // Update the JSON file with the new commandUsed value
+        // Update the JSON file with the new counter value
         editCommand(input[0].substring(1), modOnly, commandResponse, commandCounterNew);
 
+        // Variables for the custom command responses
         var response = customCommands[input[0].substring(1)][1];
         if (response.includes("$counter")) {
             response = response.replace("$counter", commandCounterNew);
+        }
+        if (response.includes("$user")) {
+            response = response.replace("$user", `${tags.username}`);
+        }
+        // search for user starting with @ in the message then assign it to $user2
+        if (message.includes("@")) {
+            var user2 = message.split("@")[1].split(" ")[0];
+            if (response.includes("$user2")) {
+                response = response.replace("$user2", "@" + user2);
+            }
+        }
+        if (response.includes("$percentage")) {
+            response = response.replace("$percentage", `${Math.floor(Math.random() * 100)}%`);
+        }
+        if (response.includes("$ynm")) {
+            const yesNoMaybe = ["Yes", "No", "Maybe"];
+            response = response.replace("$ynm", yesNoMaybe[Math.floor(Math.random() * yesNoMaybe.length)]);
         }
 
         // Check if the command is modOnly and the user is not a mod
