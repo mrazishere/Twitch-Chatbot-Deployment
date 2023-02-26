@@ -20,7 +20,7 @@ exports.customCommands = async function customCommands(client, message, channel,
         const data = await readFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel.replace('#', '')}.json`);
         customCommands = JSON.parse(data);
     } catch (err) {
-        console.log("No custom commands found for this channel.");
+        //console.log("No custom commands found for this channel.");
     }
 
     function commandExists(commandName) {
