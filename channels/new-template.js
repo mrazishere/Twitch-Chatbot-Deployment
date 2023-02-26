@@ -56,31 +56,15 @@ async function main() {
   readMatchmakingFile();
 
   client.on('raided', (channel, username, viewers, tags) => {
-    client.mods(channel).then((data) => {
-      if (viewers >= 2) {
-        if (data.includes(`${process.env.TWITCH_USERNAME}`)) {
-          getGame(username).then(function (gameInfo) {
-            if (gameInfo == "") {
-              gameInfo = "No game detected";
-            }
-            console.log(gameInfo);
-            client.say(channel, "/announce Thank you @" + username + " for the raid of " + viewers + "! They were last seen playing [" + gameInfo + "]. Check them out @ https://www.twitch.tv/" + username);
-          })
-            .catch(error => console.log("Error getting game info...."));
-        } else {
-          getGame(username).then(function (gameInfo) {
-            if (gameInfo == "") {
-              gameInfo = "No game detected";
-            }
-            console.log(gameInfo);
-            client.say(channel, "Thank you @" + username + " for the raid of " + viewers + "! They were last seen playing [" + gameInfo + "]. Check them out @ https://www.twitch.tv/" + username);
-          })
-            .catch(error => console.log("Error getting game info...."));
+    if (viewers >= 1) {
+      getGame(username).then(function (gameInfo) {
+        if (gameInfo == "") {
+          gameInfo = "No game detected";
         }
-      }
-    }).catch((err) => {
-
-    });
+        client.say(channel, "Thank you @" + username + " for the raid of " + viewers + "! They were last seen playing [" + gameInfo + "]. Check them out @ https://www.twitch.tv/" + username);
+      })
+        .catch(error => console.log("Error getting game info...."));
+    }
   })
 
   // When the bot is on, it shall fetch the messages send by user from the specified channel

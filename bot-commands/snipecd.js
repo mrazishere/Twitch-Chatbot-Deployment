@@ -17,7 +17,6 @@ async function sleep(ms) {
 }
 
 exports.countDown = async function countDown(client, channel, message, tags) {
-    excludeAnnouncement = `${process.env.SNIPECD_EXCLUDE}`;
     input = message.split(" ");
     cd = 10;
     if (input.length == 2 && !isNaN(input[1])) {
@@ -43,18 +42,6 @@ exports.countDown = async function countDown(client, channel, message, tags) {
     await sleep(1000);
     client.say(channel, `1`);
     await sleep(1000);
-    if (!excludeAnnouncement.includes(channel)) {
-        client.mods(channel).then((data) => {
-            if (data.includes(`${process.env.TWITCH_USERNAME}`)) {
-                client.say(channel, "/announce Lets Goooooooo!!");
-            } else {
-                client.say(channel, "Lets Goooooooo!!");
-            }
-        }).catch((err) => {
-
-        });
-    } else {
-        client.say(channel, "Lets Goooooooo!!");
-    }
+    client.say(channel, "Lets Goooooooo!!");
     return;
 }
