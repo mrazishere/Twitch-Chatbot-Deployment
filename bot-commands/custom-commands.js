@@ -91,7 +91,6 @@ exports.customCommands = async function customCommands(client, message, channel,
         const modOnly = input[1].toLowerCase();
         const commandName = input[2].toLowerCase();
         const commandResponse = input.slice(3).join(" ");
-        const commandCounter = 0;
 
         // Check if the user is trying to add a command without a name
         if (commandName === "" || commandName === undefined) {
@@ -99,8 +98,8 @@ exports.customCommands = async function customCommands(client, message, channel,
             return;
         } else {
             // modOnly check
-            if (modOnly != "t" && modOnly != "f") {
-                client.say(channel, `@${tags.username}, You need to specify whether this is modOnly(t/f) command`);
+            if (modOnly != "n" && modOnly != "y" && modOnly != "v") {
+                client.say(channel, `@${tags.username}, You need to specify whether this is modOnly(n/y/v) command`);
                 return;
             } else {
                 // Check if the user is trying to add a command without a response
@@ -128,6 +127,7 @@ exports.customCommands = async function customCommands(client, message, channel,
                                     client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
                                     return;
                                 } else {
+                                    const commandCounter = 0;
                                     // Add the command to the JSON file
                                     const response = addCommand(commandName, modOnly, commandResponse, commandCounter);
                                     client.say(channel, response);
@@ -146,7 +146,6 @@ exports.customCommands = async function customCommands(client, message, channel,
         const modOnly = input[1].toLowerCase();
         const commandName = input[2].toLowerCase();
         const commandResponse = input.slice(3).join(" ");
-        const commandCounter = customCommands[commandName][2];
 
         // Check if the user is trying to edit a command with a name that does not exists
         if (!commandExists(commandName)) {
@@ -159,8 +158,8 @@ exports.customCommands = async function customCommands(client, message, channel,
                 return;
             } else {
                 // modOnly check
-                if (modOnly != "t" && modOnly != "f") {
-                    client.say(channel, `@${tags.username}, You need to specify whether this is modOnly(t/f) command`);
+                if (modOnly != "n" && modOnly != "y" && modOnly != "v") {
+                    client.say(channel, `@${tags.username}, You need to specify whether this is modOnly(n/y/v) command`);
                     return;
                 } else {
                     // Check if the user is trying to edit a command without a response
@@ -188,6 +187,7 @@ exports.customCommands = async function customCommands(client, message, channel,
                                         client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
                                         return;
                                     } else {
+                                        const commandCounter = customCommands[commandName][2];
                                         // Edit the command and upload to JSON file
                                         const response = editCommand(commandName, modOnly, commandResponse, commandCounter);
                                         client.say(channel, response);
@@ -220,8 +220,6 @@ exports.customCommands = async function customCommands(client, message, channel,
     // Create command to update commandCounter
     if (input[0] === "!updatecounter") {
         const commandName = input[1].toLowerCase();
-        const modOnly = customCommands[commandName][0];
-        const commandResponse = customCommands[commandName][1];
         const commandCounterNew = Number(input[2]);
 
         // Check if the user is trying to update a command without a name
@@ -244,6 +242,8 @@ exports.customCommands = async function customCommands(client, message, channel,
                         client.say(channel, `@${tags.username}, That command doesn't exist!`);
                         return;
                     } else {
+                        const modOnly = customCommands[commandName][0];
+                        const commandResponse = customCommands[commandName][1];
                         // Update the commandCounter
                         editCommand(commandName, modOnly, commandResponse, commandCounterNew);
                         client.say(channel, `@${tags.username}, Counter updated!`);
@@ -281,24 +281,30 @@ exports.customCommands = async function customCommands(client, message, channel,
         // Update the JSON file with the new commandUsed value
         editCommand(input[0].substring(1), modOnly, commandResponse, commandCounterNew);
 
-        const response = customCommands[input[0].substring(1)][1];
+        var response = customCommands[input[0].substring(1)][1];
         if (response.includes("$counter")) {
-            var response1 = response.replace("$counter", commandCounterNew);
-        } else {
-            var response1 = response;
+            response = response.replace("$counter", commandCounterNew);
         }
 
         // Check if the command is modOnly and the user is not a mod
-        if (modOnly === "t") {
+        if (modOnly === "y") {
             if (isModUp) {
-                client.say(channel, response1);
+                client.say(channel, response);
                 return;
             } else {
                 //client.say(channel, `@${tags.username}, This command is modOnly!`);
                 return;
             }
-        } else {
-            client.say(channel, response1);
+        } else if (modOnly === "v") {
+            if (isVIPUp) {
+                client.say(channel, response);
+                return;
+            } else {
+                //client.say(channel, `@${tags.username}, This command is modOnly!`);
+                return;
+            }
+        } else if (modOnly === "n") {
+            client.say(channel, response);
             return;
         }
     }
