@@ -177,7 +177,7 @@ async function main() {
     }
 
     // Commands without dedicated .js files
-    if (input === "!ping") {
+    if (input[0] === "!ping") {
       async function ping() {
         client.say(channel, `pong!`);
       }
