@@ -16,7 +16,7 @@ async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-exports.countDown = async function countDown(client, channel, message, tags) {
+exports.countDown = async function countDown(client, message, channel, tags) {
     // Set variables for user permission logic
     const badges = tags.badges || {};
     const isBroadcaster = badges.broadcaster;

@@ -21,7 +21,7 @@ exports.readMatchmakingFile = async function readMatchmakingFile() {
   }
 }
 
-exports.partyMatchmaking = async function partyMatchmaking(client, channel, message, tags) {
+exports.partyMatchmaking = async function partyMatchmaking(client, message, channel, tags) {
   // Set variables for user permission logic
   const badges = tags.badges || {};
   const isBroadcaster = badges.broadcaster;

@@ -90,32 +90,12 @@ async function main() {
     // If a command needs to be updated, this can be done centrally on the command.js file which should take effect on all channels.
 
     const glob = require("glob");
-    const commandFiles = glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`);
-    const commands = {};
-
-    commandFiles.forEach(file => {
+    glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`).forEach(file => {
       const commandExports = require(file);
-      Object.keys(commandExports).forEach(function (key) {
-        commands[key] = commandExports[key];
-      });
+      const functionName = file.split('/').pop().replace('.js', '');
+      commands[functionName] = commandExports[functionName];
+      commands[functionName](client, message, channel, tags);
     });
-
-    // Call whole command file
-    commands["customCommands"](client, message, channel, tags);
-    commands["translate"](client, message, channel, tags);
-    commands["advice"](client, message, channel, tags);
-    commands["anime"](client, message, channel, tags);
-    commands["catfacts"](client, message, channel, tags);
-    commands["clock"](client, message, channel, tags);
-    commands["dad"](client, message, channel, tags);
-    commands["dictionary"](client, message, channel, tags);
-    commands["dogfacts"](client, message, channel, tags);
-    commands["forex"](client, message, channel, tags);
-    commands["jokes"](client, message, channel, tags);
-    commands["numfacts"](client, message, channel, tags);
-    commands["partyMatchmaking"](client, channel, message, tags);
-    commands["pokecatch"](client, message, channel, tags);
-    commands["countDown"](client, channel, message, tags);
 
     // Commands without dedicated .js files
     if (input[0] === "!ping") {
