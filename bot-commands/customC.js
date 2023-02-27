@@ -6,7 +6,7 @@ const {
 const readFileAsync = promisify(fs.readFile);
 const writeFileAsync = promisify(fs.writeFile);
 
-exports.customCommands = async function customCommands(client, message, channel, tags) {
+exports.customC = async function customC(client, message, channel, tags) {
     const badges = tags.badges || {};
     const isBroadcaster = badges.broadcaster;
     const isMod = badges.moderator;
@@ -89,9 +89,14 @@ exports.customCommands = async function customCommands(client, message, channel,
     }
 
     if (input[0] === "!acomm") {
-        const modOnly = input[1].toLowerCase();
-        const commandName = input[2].toLowerCase();
-        const commandResponse = input.slice(3).join(" ");
+        if (input.length < 2) {
+            client.say(channel, `@${tags.username}, !acomm <modOnly(n/y/v)> <commandName> <commandResponse>`);
+            return;
+        } else {
+            const modOnly = input[1].toLowerCase();
+            const commandName = input[2].toLowerCase();
+            const commandResponse = input.slice(3).join(" ");
+        }
 
         // Check if the user is trying to add a command without a name
         if (commandName === "" || commandName === undefined) {
@@ -144,9 +149,14 @@ exports.customCommands = async function customCommands(client, message, channel,
 
 
     if (input[0] === "!ecomm") {
-        const modOnly = input[1].toLowerCase();
-        const commandName = input[2].toLowerCase();
-        const commandResponse = input.slice(3).join(" ");
+        if (input.length < 2) {
+            client.say(channel, `@${tags.username}, !ecomm <modOnly(n/y/v)> <commandName> <commandResponse>`);
+            return;
+        } else {
+            const modOnly = input[1].toLowerCase();
+            const commandName = input[2].toLowerCase();
+            const commandResponse = input.slice(3).join(" ");
+        }
 
         // Check if the user is trying to edit a command with a name that does not exists
         if (!commandExists(commandName)) {
@@ -204,7 +214,12 @@ exports.customCommands = async function customCommands(client, message, channel,
     }
 
     if (input[0] === "!dcomm") {
-        const commandName = input[1].toLowerCase();
+        if (input.length < 2) {
+            client.say(channel, `@${tags.username}, !dcomm <commandName>`);
+            return;
+        } else {
+            const commandName = input[1].toLowerCase();
+        }
 
         // Check if the user is trying to remove a command that doesn't exist
         if (!commandExists(commandName)) {
@@ -220,8 +235,13 @@ exports.customCommands = async function customCommands(client, message, channel,
 
     // Create command to update commandCounter
     if (input[0] === "!countcomm") {
-        const commandName = input[1].toLowerCase();
-        const commandCounterNew = Number(input[2]);
+        if (input.length < 2) {
+            client.say(channel, `@${tags.username}, !countcomm <commandName> <commandCounter>`);
+            return;
+        } else {
+            const commandName = input[1].toLowerCase();
+            const commandCounterNew = Number(input[2]);
+        }
 
         // Check if the user is trying to update a command without a name
         if (commandName === "" || commandName === undefined) {

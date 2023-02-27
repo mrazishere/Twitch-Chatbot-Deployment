@@ -89,6 +89,7 @@ async function main() {
     // Make sure to test this on existing channels before updating into template file.
     // If a command needs to be updated, this can be done centrally on the command.js file which should take effect on all channels.
 
+    const commands = {};
     const glob = require("glob");
     glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`).forEach(file => {
       const commandExports = require(file);
