@@ -22,38 +22,40 @@ async function sleep(ms) {
 
 exports.numfacts = async function numfacts(client, message, channel, tags) {
   input = message.split(" ");
-  if (input.length > 2) {
+  if (input[0] === "!numfacts") {
+    if (input.length > 2) {
+      return;
+    } else if (input.length == 2) {
+      fetchResponse = await fetch('http://numbersapi.com/' + input[1] + '')
+        .then(response => {
+          if (response.ok) {
+            response.text().then((data) => {
+              sleep(1000);
+              client.say(channel, `@${tags.username}, ` + data);
+            });
+          } else {
+            client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
+          }
+        })
+        .catch(error => {
+          console.log(error);
+        });
+    } else {
+      fetchResponse = await fetch('http://numbersapi.com/random')
+        .then(response => {
+          if (response.ok) {
+            response.text().then((data) => {
+              sleep(1000);
+              client.say(channel, `@${tags.username}, ` + data);
+            });
+          } else {
+            client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
+          }
+        })
+        .catch(error => {
+          console.log(error);
+        });
+    }
     return;
-  } else if (input.length == 2) {
-    fetchResponse = await fetch('http://numbersapi.com/' + input[1] + '')
-      .then(response => {
-        if (response.ok) {
-          response.text().then((data) => {
-            sleep(1000);
-            client.say(channel, `@${tags.username}, ` + data);
-          });
-        } else {
-          client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
-        }
-      })
-      .catch(error => {
-        console.log(error);
-      });
-  } else {
-    fetchResponse = await fetch('http://numbersapi.com/random')
-      .then(response => {
-        if (response.ok) {
-          response.text().then((data) => {
-            sleep(1000);
-            client.say(channel, `@${tags.username}, ` + data);
-          });
-        } else {
-          client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
-        }
-      })
-      .catch(error => {
-        console.log(error);
-      });
   }
-  return;
 };

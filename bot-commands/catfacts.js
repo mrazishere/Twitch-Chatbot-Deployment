@@ -22,27 +22,29 @@ async function sleep(ms) {
 
 exports.catfacts = async function catfacts(client, message, channel, tags) {
   input = message.split(" ");
-  const fetchResponse = await fetch('https://meowfacts.herokuapp.com/', { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
-    .then(response => {
-      if (response.ok) {
-        response.json().then((data) => {
-          var outputArr = JSON.parse(JSON.stringify(data));
-          var output = outputArr['data'][0];
-          sleep(1000);
-          if (!input[1]) {
-            //console.log(output);
-            client.say(channel, `@${tags.username}, ` + output);
-          } else {
-            client.say(channel, `@${tags.username}, this command does not accept any inputs.`);
-          }
-          //console.log(data);
-        });
-      } else {
-        client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
-      }
-    }).
-    catch(error => {
-      console.log(error);
-    });
-  return;
+  if (input[0] === "!catfacts") {
+    const fetchResponse = await fetch('https://meowfacts.herokuapp.com/', { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
+      .then(response => {
+        if (response.ok) {
+          response.json().then((data) => {
+            var outputArr = JSON.parse(JSON.stringify(data));
+            var output = outputArr['data'][0];
+            sleep(1000);
+            if (!input[1]) {
+              //console.log(output);
+              client.say(channel, `@${tags.username}, ` + output);
+            } else {
+              client.say(channel, `@${tags.username}, this command does not accept any inputs.`);
+            }
+            //console.log(data);
+          });
+        } else {
+          client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
+        }
+      }).
+      catch(error => {
+        console.log(error);
+      });
+    return;
+  }
 }
