@@ -1,7 +1,7 @@
 /**
  * Random advice command
  * 
- * Description: Get random dad jokes on twitch chat
+ * Description: Get advice on twitch chat
  * 
  * Credits: https://adviceslip.com/
  * 

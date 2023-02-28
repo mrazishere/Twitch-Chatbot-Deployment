@@ -98,14 +98,6 @@ async function main() {
       commands[functionName](client, message, channel, tags);
     });
 
-    // Commands without dedicated .js files
-    if (input[0] === "!ping") {
-      async function ping() {
-        client.say(channel, `pong!`);
-      }
-      ping();
-    }
-
     // Listen only on bot's channel
     if (channel.includes(process.env.TWITCH_USERNAME)) {
       switch (message.toLowerCase()) {

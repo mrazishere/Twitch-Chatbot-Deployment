@@ -1,3 +1,30 @@
+/**
+ * Custom commands
+ * 
+ * Description: Allow streamer to manage custom commands directly from Twitch chat
+ * 
+ * 
+ * Permission required:
+ *          !acomm: Moderators and above
+ *          !ecomm: Moderators and above
+ *          !dcomm: Moderators and above
+ *          !lcomm: Moderators and above
+ *          !<commmandName>: all/Mods/VIP (Depends on what's confirgured for modOnly)
+ * 
+ * Usage:   !acomm modOnly commandName commandResponse - Add new custom command
+ *          !ecomm modOnly commandName commandResponse - Edit existing custom command
+ *          !dcomm commandName - Delete existing custom command
+ *          !lcomm - List all custom commands
+ *          !<commandName> - Execute custom command
+ * 
+ * Variables:   $counter - Number of times the command has been used
+ *              $user - Username of the user who executed the command
+ *              $user2 - Username of the mentioned user in the command
+ *              $percentage - Random percentage
+ *              $ynm - Random yes/no/maybe
+ *  
+ */
+
 const fs = require('fs');
 const {
     promisify

@@ -1,7 +1,7 @@
 /**
  * Random Anime Quotes command
  * 
- * Description: Get random cat facts on twitch chat
+ * Description: Get Anime quotes on twitch chat
  * 
  * Credits: https://animechan.vercel.app
  * 
