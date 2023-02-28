@@ -127,7 +127,7 @@ exports.translate = async function translate(client, message, channel, tags) {
             let atname = tMsg.substring(0, atnameEndIndex);
             let message = tMsg.substring(atnameEndIndex + 1);
             tMsg = message + ' ' + atname;
-            console.info('Changed message :', tMsg);
+            // console.info('Changed message :', tMsg);
         }
 
         // Filter commands (options)
