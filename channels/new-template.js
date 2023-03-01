@@ -48,7 +48,7 @@ async function main() {
     const channels = await twitch.getChannelInformation({ broadcaster_id: userId });
     const channelInfo = channels.data[0];
     const game = channelInfo.game_name;
-    console.log(game);
+    //console.log(game);
     return game;
   }
 
