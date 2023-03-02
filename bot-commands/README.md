@@ -11,9 +11,9 @@
 - jokes
 - numfacts
 - partyMatchmaking
+- ping
 - pokecatch
 - snipecd
 - translate
-- yoda
 
 ## TODO: Description:
