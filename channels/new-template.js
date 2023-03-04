@@ -56,7 +56,7 @@ async function main() {
   readMatchmakingFile();
 
   client.on('raided', (channel, username, viewers, tags) => {
-    if (viewers >= 1) {
+    if (viewers >= 2) {
       getGame(username).then(function (gameInfo) {
         if (gameInfo == "") {
           gameInfo = "No game detected";
