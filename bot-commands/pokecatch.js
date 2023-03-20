@@ -21,7 +21,7 @@ async function sleep(ms) {
 
 exports.pokecatch = async function pokecatch(client, message, channel, tags) {
   input = message.split(" ");
-  if (input[0] === "!pokecatch") {
+  if (input[0] === "!catch") {
     if (!input[1]) {
       const fetchResponse = await fetch('https://us-central1-caffs-personal-projects.cloudfunctions.net/pokeselect', { method: 'GET', headers: { 'accept': 'text/plain', 'content-type': 'text/plain' } })
         .then(response => {

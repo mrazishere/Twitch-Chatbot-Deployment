@@ -5,6 +5,7 @@ async function main() {
   const tmi = require('tmi.js');
   const fs = require('fs');
   const { exec } = require("child_process");
+  const crypto = require('crypto');
 
   // TMI Twitch IRC Setup connection configurations
   // These include the channel, username and password
@@ -156,6 +157,8 @@ module.exports = {
       script: '${process.env.BOT_FULL_PATH}/channels/${addUser}.js',
       log_date_format: "YYYY-MM-DD",
       max_memory_restart: "100M",
+      max_restarts: "3",
+      min_uptime: "5000"
     }
   ]
 }`
@@ -371,6 +374,10 @@ module.exports = {
 
     if (message.split(" ")[0] === "!redeploy") {
       redeploy();
+    }
+
+    if (message.split(" ")[0] === "!grantaccess") {
+      //grantAccessTwitchAPI();
     }
 
   });
