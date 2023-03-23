@@ -1,3 +1,34 @@
+/**
+ * Play with viewers random matchmaking command
+ * 
+ * Description: Allows viewers to play with each other and get matched with random viewers as a team
+ *              Streamer can set the size of the teams and randomize the team members
+ * 
+ * Credits: twitch.tv/raaiined
+ * 
+ * Permission required:
+ *          !mm: All users
+ *          !mm enable: Moderators and above
+ *          !mm disable: Moderators and above
+ *          !mm clear: Moderators and above
+ *          !mm random: Moderators and above
+ *          !mm info: Moderators and above
+ *          !mm join: All users
+ *          !mm unjoin: All users
+ * 
+ * Usage:   !mm - List all players in the matchmaking list
+ *          !mm join - Add yourself to the matchmaking list
+ *          !mm unjoin - Remove yourself from the matchmaking list
+ *          !mm enable - Enable matchmaking feature
+ *          !mm disable - Disable matchmaking feature
+ *          !mm clear - Clear matchmaking list
+ *          !mm random <1-4> - Randomize the matchmaking list into teams of the specified size
+ *          !mm info - List all teams and their members
+ * 
+ *          
+ *  
+ */
+
 const fs = require('fs');
 
 async function sleep(ms) {

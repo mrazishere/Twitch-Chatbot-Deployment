@@ -7,7 +7,7 @@
  * 
  * Permission required: all users
  * 
- * Usage:   !pokecatch - Catch random pokemons
+ * Usage:   !catch - Catch random pokemons
  * 
  *          
  *  

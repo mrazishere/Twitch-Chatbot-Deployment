@@ -8,8 +8,8 @@
  * Permission required: all users
  * 
  * Usage:   !jokes - Random jokes
+ *          !jokes<SPACE>[SEARCH TERM] - Jokes with search term
  * 
- * TODO: add search functionality
  *          
  *  
  */

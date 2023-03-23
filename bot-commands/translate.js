@@ -1,5 +1,15 @@
-// Translator Bot for Twitch
-// Using google translate, via 'googletrans' package
+/**
+ * Twitch chat Google Translate command
+ * 
+ * Description: Allows twitch chat to perform google translation.
+ * 
+ * Permission required: All users
+ * 
+ * Usage:   !<language code><SPACE><message to translate>
+ *          Language codes: https://cloud.google.com/translate/docs/languages
+ *          
+ *  
+ */
 
 // API Google Translate
 const gtrans = require('googletrans').default;

@@ -11,8 +11,8 @@
  *          !lcomm: Moderators and above
  *          !<commmandName>: all/Mods/VIP (Depends on what's confirgured for modOnly)
  * 
- * Usage:   !acomm modOnly commandName commandResponse - Add new custom command
- *          !ecomm modOnly commandName commandResponse - Edit existing custom command
+ * Usage:   !acomm modOnly(n/y/v) commandName commandResponse - Add new custom command
+ *          !ecomm modOnly(n/y/v) commandName commandResponse - Edit existing custom command
  *          !dcomm commandName - Delete existing custom command
  *          !lcomm - List all custom commands
  *          !<commandName> - Execute custom command

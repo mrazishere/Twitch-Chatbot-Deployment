@@ -1,13 +1,13 @@
 /**
- * Random advice command
+ * Weather command
  * 
- * Description: Get advice on twitch chat
+ * Description: Get real time weather information on twitch chat
  * 
  * Credits: https://developer.accuweather.com/apis
  * 
  * Permission required: all users
  * 
- * Usage:   !weather<SPACE>[SEARCH TERM] - Get weather of searched location
+ * Usage:   !weather<SPACE>[location] - Get weather of searched location
  * 
  *          
  *  

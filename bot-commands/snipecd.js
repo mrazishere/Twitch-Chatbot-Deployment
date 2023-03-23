@@ -3,6 +3,7 @@
  * 
  * Description: Allows streamers to start a countdown on channel's chat.
  *              Some use purpose includes: Snipe games.
+ *              In order for countdown to work, the bot needs to be at least a VIP or above due to Twitch's chat cooldown.
  * 
  * Permission required: Moderators and above
  * 
