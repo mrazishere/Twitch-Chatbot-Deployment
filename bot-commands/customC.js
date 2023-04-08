@@ -120,9 +120,9 @@ exports.customC = async function customC(client, message, channel, tags) {
             client.say(channel, `@${tags.username}, !acomm <modOnly(n/y/v)> <commandName> <commandResponse>`);
             return;
         } else {
-            const modOnly = input[1].toLowerCase();
-            const commandName = input[2].toLowerCase();
-            const commandResponse = input.slice(3).join(" ");
+            var modOnly = input[1].toLowerCase();
+            var commandName = input[2].toLowerCase();
+            var commandResponse = input.slice(3).join(" ");
         }
 
         // Check if the user is trying to add a command without a name
@@ -180,9 +180,9 @@ exports.customC = async function customC(client, message, channel, tags) {
             client.say(channel, `@${tags.username}, !ecomm <modOnly(n/y/v)> <commandName> <commandResponse>`);
             return;
         } else {
-            const modOnly = input[1].toLowerCase();
-            const commandName = input[2].toLowerCase();
-            const commandResponse = input.slice(3).join(" ");
+            var modOnly = input[1].toLowerCase();
+            var commandName = input[2].toLowerCase();
+            var commandResponse = input.slice(3).join(" ");
         }
 
         // Check if the user is trying to edit a command with a name that does not exists
@@ -245,7 +245,7 @@ exports.customC = async function customC(client, message, channel, tags) {
             client.say(channel, `@${tags.username}, !dcomm <commandName>`);
             return;
         } else {
-            const commandName = input[1].toLowerCase();
+            var commandName = input[1].toLowerCase();
         }
 
         // Check if the user is trying to remove a command that doesn't exist
@@ -266,8 +266,8 @@ exports.customC = async function customC(client, message, channel, tags) {
             client.say(channel, `@${tags.username}, !countcomm <commandName> <commandCounter>`);
             return;
         } else {
-            const commandName = input[1].toLowerCase();
-            const commandCounterNew = Number(input[2]);
+            var commandName = input[1].toLowerCase();
+            var commandCounterNew = Number(input[2]);
         }
 
         // Check if the user is trying to update a command without a name
@@ -319,11 +319,11 @@ exports.customC = async function customC(client, message, channel, tags) {
     // Get the number of times the command has been called and add 1
     if (commandExists(input[0].substring(1)) && input[0].startsWith('!')) {
         // Get the command value for the custom command
-        const commandName = commandExists(input[0].substring(1));
-        const modOnly = customCommands[input[0].substring(1)][0];
-        const commandResponse = customCommands[input[0].substring(1)][1];
+        commandName = commandExists(input[0].substring(1));
+        modOnly = customCommands[input[0].substring(1)][0];
+        commandResponse = customCommands[input[0].substring(1)][1];
 
-        const commandCounter = customCommands[input[0].substring(1)][2];
+        commandCounter = customCommands[input[0].substring(1)][2];
         commandCounterNew = commandCounter + 1;
 
         // Update the JSON file with the new counter value
