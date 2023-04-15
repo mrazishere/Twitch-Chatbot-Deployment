@@ -18,7 +18,7 @@
  *          !<commandName> - Execute custom command
  * 
  * Variables:   $counter - Number of times the command has been used
- *              $user - Username of the user who executed the command
+ *              $user1 - Username of the user who executed the command
  *              $user2 - Username of the mentioned user in the command
  *              $percentage - Random percentage
  *              $ynm - Random yes/no/maybe
@@ -334,14 +334,16 @@ exports.customC = async function customC(client, message, channel, tags) {
         if (response.includes("$counter")) {
             response = response.replace("$counter", commandCounterNew);
         }
-        if (response.includes("$user")) {
-            response = response.replace("$user", `${tags.username}`);
+        if (response.includes("$user1")) {
+            response = response.replace("$user1", `${tags.username}`);
         }
         // search for user starting with @ in the message then assign it to $user2
-        if (message.includes("@")) {
-            var user2 = message.split("@")[1].split(" ")[0];
-            if (response.includes("$user2")) {
+        if (response.includes("$user2")) {
+            if (message.includes("@")) {
+                var user2 = message.split("@")[1].split(" ")[0];
                 response = response.replace("$user2", "@" + user2);
+            } else {
+                response = response.replace("$user2", `@${tags.username}`);
             }
         }
         if (response.includes("$percentage")) {
