@@ -38,8 +38,15 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
                 client.say(channel, `@${tags.username}, invalid use of command: !snipecd or !snipecd<SPACE>[Number of Seconds]`);
                 return;
             }
-            client.say(channel, `Countdown starting in ` + cd + ` seconds`);
+            client.say(channel, `Countdown starting in ` + cd + ` seconds...`);
             cd = cd * 1000;
+
+            while (cd > 10000) {
+                await sleep(10000);
+                cd -= 10000;
+                client.say(channel, `Countdown starting in ` + cd / 1000 + ` seconds...`);
+            }
+
             await sleep(cd);
             client.say(channel, `Ready up on GO!`);
             await sleep(1000);
