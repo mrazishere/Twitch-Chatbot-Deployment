@@ -91,11 +91,18 @@ async function main() {
 
     const commands = {};
     const glob = require("glob");
+
     glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`).forEach(file => {
       const commandExports = require(file);
       const functionName = file.split('/').pop().replace('.js', '');
-      commands[functionName] = commandExports[functionName];
-      commands[functionName](client, message, channel, tags);
+
+      if (typeof commandExports[functionName] === 'function') {
+        commands[functionName] = commandExports[functionName];
+        commands[functionName](client, message, channel, tags);
+      } else {
+        console.log(`Invalid command: ${functionName}`);
+        // Handle the error or invalid command here
+      }
     });
 
     // Listen only on bot's channel
