@@ -48,7 +48,7 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
 
             countdownInterval = setInterval(async () => {
                 cd -= 10000;
-                if (cd > 10000) {
+                if (cd >= 10000) {
                     client.say(channel, `Countdown starting in ${cd / 1000} seconds...`);
                 } else {
                     clearInterval(countdownInterval);
