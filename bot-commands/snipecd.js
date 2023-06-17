@@ -79,7 +79,7 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
             if (countdownInterval) {
                 clearInterval(countdownInterval);
                 countdownInterval = null;
-                client.say(channel, `Countdown canceled.`);
+                client.say(channel, `Countdown canceled! Look out for new countdown!`);
             } else {
                 client.say(channel, `@${tags.username}, there's no ongoing countdown to cancel.`);
             }
