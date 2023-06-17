@@ -43,21 +43,17 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
                 return;
             }
 
-            const initialCd = cd; // Store the initial cd value
-            cd = Math.floor(cd / 10) * 10; // Update the cd value to the rounded-down multiple of 10
-
-            client.say(channel, `Countdown starting in ${initialCd} seconds...`);
-            await sleep((initialCd - cd) * 1000); // Calculate the sleep duration based on the difference
             client.say(channel, `Countdown starting in ${cd} seconds...`);
             cd *= 1000; // Convert cd to milliseconds
 
             countdownInterval = setInterval(async () => {
-                cd -= 10000;
-                if (cd >= 10000) {
+                cd -= 1000;
+                if (cd >= 10000 && cd % 10000 == 0) {
                     client.say(channel, `Countdown starting in ${cd / 1000} seconds...`);
-                } else {
+                } else if (cd < 10000) {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
+                    await sleep(4000);
                     client.say(channel, "Ready up on GO!");
                     await sleep(1000);
                     client.say(channel, "5");
@@ -72,7 +68,7 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
                     await sleep(1000);
                     client.say(channel, "Let's Goooooooo!!");
                 }
-            }, 10000);
+            }, 1000);
             return;
         } else {
             client.say(channel, `@${tags.username}, !snipecd is for Moderators & above.`);
