@@ -53,7 +53,7 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
                 } else if (cd < 10000) {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
-                    await sleep(4000);
+                    await sleep(cd);
                     client.say(channel, "Ready up on GO!");
                     await sleep(1000);
                     client.say(channel, "5");
