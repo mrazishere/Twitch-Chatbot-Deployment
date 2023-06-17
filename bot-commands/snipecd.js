@@ -58,22 +58,21 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
                 } else {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
+                    client.say(channel, "Ready up on GO!");
+                    await sleep(1000);
+                    client.say(channel, "5");
+                    await sleep(1000);
+                    client.say(channel, "4");
+                    await sleep(1000);
+                    client.say(channel, "3");
+                    await sleep(1000);
+                    client.say(channel, "2");
+                    await sleep(1000);
+                    client.say(channel, "1");
+                    await sleep(1000);
+                    client.say(channel, "Let's Goooooooo!!");
                 }
             }, 10000);
-            await sleep(4000);
-            client.say(channel, "Ready up on GO!");
-            await sleep(1000);
-            client.say(channel, "5");
-            await sleep(1000);
-            client.say(channel, "4");
-            await sleep(1000);
-            client.say(channel, "3");
-            await sleep(1000);
-            client.say(channel, "2");
-            await sleep(1000);
-            client.say(channel, "1");
-            await sleep(1000);
-            client.say(channel, "Let's Goooooooo!!");
             return;
         } else {
             client.say(channel, `@${tags.username}, !snipecd is for Moderators & above.`);
