@@ -50,14 +50,11 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
                 cd -= 1000;
                 if (cd >= 10000 && cd % 10000 == 0) {
                     client.say(channel, `Game starting in ${cd / 1000} seconds...`);
-                } else if (cd > 6000) {
-                    await sleep(cd);
                 } else if (cd === 6000) {
                     client.say(channel, "Ready up on GO!");
                 } else if (cd < 6000 && cd > 0) {
                     client.say(channel, `${cd / 1000}`);
-                    await sleep(1000);
-                } else {
+                } else if (cd === 0) {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
                     client.say(channel, "Let's Goooooooo!!");
