@@ -26,7 +26,7 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
     const isModUp = isBroadcaster || isMod || tags.username === process.env.TWITCH_OWNER;
     const isVIPUp = isVIP || isModUp;
     const channel1 = channel.substring(1);
-    input = message.split(" ");
+    let input = message.split(" ");
 
     if (input[0] === "!snipecd") {
         if (isModUp) {
@@ -37,35 +37,29 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
 
             let cd = 10;
             if (input.length === 2 && !isNaN(input[1])) {
-                cd = input[1];
+                cd = parseInt(input[1], 10);
             } else if (input.length !== 1) {
                 client.say(channel, `@${tags.username}, invalid use of command: !snipecd or !snipecd [Number of Seconds]`);
                 return;
             }
 
-            client.say(channel, `Countdown starting in ${cd} seconds...`);
+            client.say(channel, `Game starting in ${cd} seconds...`);
             cd *= 1000; // Convert cd to milliseconds
 
             countdownInterval = setInterval(async () => {
                 cd -= 1000;
                 if (cd >= 10000 && cd % 10000 == 0) {
-                    client.say(channel, `Countdown starting in ${cd / 1000} seconds...`);
-                } else if (cd < 10000) {
+                    client.say(channel, `Game starting in ${cd / 1000} seconds...`);
+                } else if (cd > 6000) {
+                    await sleep(cd);
+                } else if (cd === 6000) {
+                    client.say(channel, "Ready up on GO!");
+                } else if (cd < 6000 && cd > 0) {
+                    client.say(channel, `${cd / 1000}`);
+                    await sleep(1000);
+                } else {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
-                    await sleep(cd);
-                    client.say(channel, "Ready up on GO!");
-                    await sleep(1000);
-                    client.say(channel, "5");
-                    await sleep(1000);
-                    client.say(channel, "4");
-                    await sleep(1000);
-                    client.say(channel, "3");
-                    await sleep(1000);
-                    client.say(channel, "2");
-                    await sleep(1000);
-                    client.say(channel, "1");
-                    await sleep(1000);
                     client.say(channel, "Let's Goooooooo!!");
                 }
             }, 1000);
