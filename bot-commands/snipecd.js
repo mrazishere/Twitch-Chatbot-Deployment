@@ -42,8 +42,13 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
                 client.say(channel, `@${tags.username}, invalid use of command: !snipecd or !snipecd [Number of Seconds]`);
                 return;
             }
+            if (cd < 7) {
+                cd = 7;
+                client.say(channel, `Game starting in ${cd - 2} seconds...`);
+            } else {
+                client.say(channel, `Game starting in ${cd} seconds...`);
+            }
 
-            client.say(channel, `Game starting in ${cd} seconds...`);
             cd *= 1000; // Convert cd to milliseconds
 
             countdownInterval = setInterval(async () => {
