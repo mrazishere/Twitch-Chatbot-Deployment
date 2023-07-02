@@ -37,6 +37,7 @@ exports.jokes = async function jokes(client, message, channel, tags) {
               sleep(1000);
               if (type == "twopart") {
                 client.say(channel, `@${tags.username}, ` + setup);
+                sleep(3000);
                 client.say(channel, delivery);
               } else {
                 client.say(channel, `@${tags.username}, ` + joke);
