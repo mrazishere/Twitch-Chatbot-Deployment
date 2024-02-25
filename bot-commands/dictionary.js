@@ -41,7 +41,7 @@ exports.dictionary = async function dictionary(client, message, channel, tags) {
               }
             });
           } else {
-            client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
+            client.say(channel, "Sorry, nothing found with the search term: " + input[1]);
           }
         })
         .catch(error => {

@@ -68,7 +68,7 @@ exports.customC = async function customC(client, message, channel, tags) {
             console.error(err);
         }
 
-        return `@${tags.username}, Command added!`;
+        return `@${tags.username}, !${commandName} Command added!`;
     }
 
     function removeCommand(commandName) {
@@ -84,7 +84,7 @@ exports.customC = async function customC(client, message, channel, tags) {
             console.error(err);
         }
 
-        return `@${tags.username}, Command removed!`;
+        return `@${tags.username}, !${commandName} Command removed!`;
     }
 
     // Retrieve the number of times a command has been used
@@ -104,7 +104,7 @@ exports.customC = async function customC(client, message, channel, tags) {
 
         // Respond only when called by !ecomm
         if (input[0] === "!ecomm") {
-            return `@${tags.username}, Command updated!`;
+            return `@${tags.username}, !${commandName} Command updated!`;
         }
     }
 
