@@ -21,6 +21,7 @@
  *              $user1 - Username of the user who executed the command
  *              $user2 - Username of the mentioned user in the command
  *              $percentage - Random percentage
+ *              $streamerp = Random percentage except if user2 is the streamer of the channel, will print 10000000%
  *              $ynm - Random yes/no/maybe
  *  
  */
