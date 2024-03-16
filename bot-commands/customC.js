@@ -343,11 +343,21 @@ exports.customC = async function customC(client, message, channel, tags) {
                 var user2 = message.split("@")[1].split(" ")[0];
                 response = response.replace("$user2", "@" + user2);
             } else {
+                var user2 = `${tags.username}`;
                 response = response.replace("$user2", `@${tags.username}`);
             }
         }
         if (response.includes("$percentage")) {
             response = response.replace("$percentage", `${Math.floor(Math.random() * 100)}%`);
+        }
+        if (response.includes("$streamerp")) {
+            console.log("user2 is " + user2);
+            console.log("channel1 is " + channel1);
+            if (user2.toLowerCase() == channel1) {
+                response = response.replace("$streamerp", `10000000%`);
+            } else {
+                response = response.replace("$streamerp", `${Math.floor(Math.random() * 100)}%`);
+            }
         }
         if (response.includes("$ynm")) {
             const yesNoMaybe = ["Yes", "No", "Maybe"];
