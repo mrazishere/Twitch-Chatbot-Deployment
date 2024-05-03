@@ -26,7 +26,7 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
     const isModUp = isBroadcaster || isMod || tags.username === process.env.TWITCH_OWNER;
     const isVIPUp = isVIP || isModUp;
     const channel1 = channel.substring(1);
-    let input = message.split(" ");
+    let input = message.trimEnd().split(" ");
 
     if (input[0] === "!snipecd") {
         if (isModUp) {
