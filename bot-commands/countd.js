@@ -31,7 +31,7 @@ exports.countd = async function countd(client, message, channel, tags) {
         const unit = durationStr.slice(-1); // Get the last character to determine the unit
         const duration = parseInt(durationStr.slice(0, -1)); // Get the duration without the unit
 
-        if (!title || isNaN(duration) || !unit || (unit !== 's' && unit !== 'm')) {
+        if (!title || isNaN(duration) || !unit || (unit !== 's' && unit !== 'm') || durationStr.includes('min')) {
             client.say(channel, `@${tags.username}, invalid usage of command. Usage: !countd add [title] [number][s/m]`);
             return;
         }
@@ -146,17 +146,17 @@ exports.countd = async function countd(client, message, channel, tags) {
     let input = message.split(" ");
 
     if (input[0] === "!countd") {
-        if (isModUp) {
-            if (input[1] === "list") {
-                // List active countdowns
-                // First, start the countdown if adding a new one and then list countdowns
-                if (input[2] === "add") {
-                    addCountdown(client, channel, tags, input.slice(3).join(" "));
-                    listCountdowns(client, channel, tags);
-                } else {
-                    listCountdowns(client, channel, tags);
-                }
-            } else if (input[1] === "add") {
+        if (input[1] === "list") {
+            // List active countdowns
+            // First, start the countdown if adding a new one and then list countdowns
+            if (input[2] === "add") {
+                addCountdown(client, channel, tags, input.slice(3).join(" "));
+                listCountdowns(client, channel, tags);
+            } else {
+                listCountdowns(client, channel, tags);
+            }
+        } else if (isModUp) {
+            if (input[1] === "add") {
                 // Add a new countdown
                 addCountdown(client, channel, tags, input.slice(2).join(" "));
             } else if (input[1] === "remove") {
@@ -165,10 +165,9 @@ exports.countd = async function countd(client, message, channel, tags) {
             } else {
                 client.say(channel, `@${tags.username}, invalid usage of command.`);
             }
-            return;
         } else {
             client.say(channel, `@${tags.username}, !countd commands are for Moderators & above.`);
-            return;
         }
+        return;
     }
 };
