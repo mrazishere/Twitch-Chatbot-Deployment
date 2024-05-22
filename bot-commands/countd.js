@@ -1,3 +1,20 @@
+/**
+ * Twitch chat multiple timer command
+ * 
+ * Description: Allows streamers to start a timer in the channel's chat.
+ *              Some use purposes include: channel redemption with timer
+ *              In order for the countdown to work, the bot needs to be at least a VIP or above due to Twitch's chat cooldown.
+ * 
+ * Permission required: VIPs and above
+ * 
+ * Usage:
+ *   !countd list - List active countdowns
+ *   !countd add [title] ['n's | 'n'm | 'n'h] - Start timer in 'n' seconds/minutes/hours
+ *   !countd edit [title] ['n's | 'n'm | 'n'h] - Edit timer for [title]
+ *   !countd delete [title] - Delete the specified timer
+ * 
+ */
+
 const fs = require('fs');
 const path = require('path');
 const COUNTDOWN_FILE = path.join(__dirname, '..', 'countd.json');
@@ -16,7 +33,12 @@ function readCountdownsFromFile() {
 // Function to write countdown data to JSON file
 function writeCountdownsToFile(countdowns) {
     try {
-        fs.writeFileSync(COUNTDOWN_FILE, JSON.stringify(countdowns, null, 2), 'utf8');
+        const sanitizedCountdowns = {};
+        for (const id in countdowns) {
+            const { channel, title, duration, startTime } = countdowns[id];
+            sanitizedCountdowns[id] = { channel, title, duration, startTime };
+        }
+        fs.writeFileSync(COUNTDOWN_FILE, JSON.stringify(sanitizedCountdowns, null, 2), 'utf8');
     } catch (error) {
         console.error('Error writing to countdown file:', error);
     }
@@ -209,6 +231,5 @@ exports.countd = async function countd(client, message, channel, tags) {
         } else {
             client.say(channel, `@${tags.username}, !countd commands are for VIPs & above.`);
         }
-        return;
     }
 };
