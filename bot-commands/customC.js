@@ -355,7 +355,9 @@ exports.customC = async function customC(client, message, channel, tags) {
             console.log("user2 is " + user2);
             console.log("channel1 is " + channel1);
             if (user2.toLowerCase() == channel1) {
-                response = response.replace("$streamerp", `10000000%`);
+                // Generate a random number between 100 and 10,000,000
+                let randomPercentage = Math.floor(Math.random() * (10000000 - 100 + 1)) + 100;
+                response = response.replace("$streamerp", `${randomPercentage}%`);
             } else {
                 response = response.replace("$streamerp", `${Math.floor(Math.random() * 100)}%`);
             }

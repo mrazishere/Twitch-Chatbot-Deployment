@@ -25,6 +25,8 @@ exports.dictionary = async function dictionary(client, message, channel, tags) {
   if (input[0] === "!define") {
     if (!input[1]) {
       client.say(channel, 'No input provided, !define<SPACE>Text to be defined');
+    } else if (input.length > 2) {
+      client.say(channel, 'More than 1 word provided, this command can only define single word');
     } else {
       const fetchResponse = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + input[1], { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
         .then(response => {
