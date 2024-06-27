@@ -114,7 +114,7 @@ exports.countd = async function countd(client, message, channel, tags) {
 
             client.say(channel, `Countdown "${title}" ending in ${formatTime(cd)}...`);
 
-            const intervals = [60, 30, 5, 4, 3, 2, 1];
+            const intervals = [5, 4, 3, 2, 1];
             let intervalIndex = 0;
 
             const countdownInterval = setInterval(() => {

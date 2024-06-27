@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Countdown Timer</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+    <script>
+        function fetchTimers() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const channel = urlParams.get('channel');
+
+            if (!channel) {
+                document.getElementById('content').innerText = 'Channel query parameter is required';
+                return;
+            }
+
+            fetch(`/countd/data?channel=${channel}`)
+                .then(response => response.json())
+                .then(timers => {
+                    if (timers.length === 0) {
+                        //document.getElementById('content').innerText = 'No timers found for this channel';
+                        return;
+                    }
+
+                    document.getElementById('content').innerHTML = '';
+
+                    timers.forEach(timer => {
+                        const timerElement = document.createElement('div');
+                        timerElement.innerHTML = `<strong>${timer.title}</strong> - <span id="timer-${timer.startTime}"></span>`;
+                        document.getElementById('content').appendChild(timerElement);
+
+                        const endTime = (timer.startTime * 1000) + (timer.duration * 1000);
+                        startCountdown(`timer-${timer.startTime}`, endTime);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching timer data:', error);
+                    document.getElementById('content').innerText = 'Error fetching timer data';
+                });
+        }
+
+        function startCountdown(elementId, endTime) {
+            function updateTimer() {
+                const now = new Date().getTime();
+                const distance = endTime - now;
+
+                const timerElement = document.getElementById(elementId);
+                if (!timerElement) return; // Exit if the element is no longer in the DOM
+
+                if (distance < 0) {
+                    timerElement.innerText = "EXPIRED";
+                    timerElement.parentElement.remove(); // Remove the timer element from the DOM
+                    return;
+                }
+
+                const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+                timerElement.innerText = `${hours}h ${minutes}m ${seconds}s`;
+                setTimeout(updateTimer, 1000);
+            }
+
+            updateTimer();
+        }
+
+
+        window.onload = function () {
+            fetchTimers();
+            setInterval(fetchTimers, 10000); // Poll every 10 seconds (adjust as needed)
+        };
+    </script>
+</head>
+
+<body>
+    <div id="content"></div>
+</body>
+
+</html>
