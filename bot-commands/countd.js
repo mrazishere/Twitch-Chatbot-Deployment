@@ -35,8 +35,8 @@ function writeCountdownsToFile(countdowns) {
     try {
         const sanitizedCountdowns = {};
         for (const id in countdowns) {
-            const { channel, title, duration, startTime } = countdowns[id];
-            sanitizedCountdowns[id] = { channel, title, duration, startTime };
+            const { channel, title, duration, startTime, counter } = countdowns[id];
+            sanitizedCountdowns[id] = { channel, title, duration, startTime, counter };
         }
         fs.writeFileSync(COUNTDOWN_FILE, JSON.stringify(sanitizedCountdowns, null, 2), 'utf8');
     } catch (error) {
@@ -63,7 +63,7 @@ exports.countd = async function countd(client, message, channel, tags) {
                 const elapsedTime = currentTime - countdown.startTime;
                 const remainingTime = Math.max(countdown.duration - elapsedTime, 0);
                 const formattedRemainingTime = formatTime(remainingTime);
-                return `[${countdown.title}/${formattedRemainingTime}]`;
+                return `[${countdown.title}/${formattedRemainingTime}] (Counter: ${countdown.counter})`;
             }).join(" ");
 
             client.say(channel, `Active countdowns: ${countdownInfo}`);
@@ -111,6 +111,7 @@ exports.countd = async function countd(client, message, channel, tags) {
 
             const countdownID = countdownIDCounter++; // Generate unique countdown ID
             const startTime = Math.floor(Date.now() / 1000); // Current time in seconds
+            const counter = 0; // Initialize counter
 
             client.say(channel, `Countdown "${title}" ending in ${formatTime(cd)}...`);
 
@@ -137,8 +138,8 @@ exports.countd = async function countd(client, message, channel, tags) {
                 }
             }, 1000);
 
-            // Add the countdown to the active countdowns with start time and interval
-            countdowns[countdownID] = { channel, title, duration: cd, startTime, interval: countdownInterval };
+            // Add the countdown to the active countdowns with start time, interval, and counter
+            countdowns[countdownID] = { channel, title, duration: cd, startTime, interval: countdownInterval, counter };
             writeCountdownsToFile(countdowns);
         } catch (error) {
             console.error('Error adding countdown:', error);
@@ -199,11 +200,33 @@ exports.countd = async function countd(client, message, channel, tags) {
             }, 1000);
 
             // Update the countdown with the new duration, start time, and interval
-            countdowns[countdownID] = { channel, title, duration: cd, startTime, interval: countdownInterval };
+            countdowns[countdownID] = { channel, title, duration: cd, startTime, interval: countdownInterval, counter: countdowns[countdownID].counter };
             writeCountdownsToFile(countdowns);
         } catch (error) {
             console.error('Error editing countdown:', error);
             client.say(channel, `@${tags.username}, an error occurred while editing the countdown.`);
+        }
+    }
+
+    function incrementCounter(client, channel, tags, title) {
+        const countdownID = Object.keys(countdowns).find(id => countdowns[id].title === title && countdowns[id].channel === channel);
+        if (countdownID) {
+            countdowns[countdownID].counter += 1;
+            writeCountdownsToFile(countdowns);
+            //client.say(channel, `Counter for "${title}" incremented to ${countdowns[countdownID].counter}.`);
+        } else {
+            client.say(channel, `@${tags.username}, countdown "${title}" not found.`);
+        }
+    }
+
+    function decrementCounter(client, channel, tags, title) {
+        const countdownID = Object.keys(countdowns).find(id => countdowns[id].title === title && countdowns[id].channel === channel);
+        if (countdownID) {
+            countdowns[countdownID].counter -= 1;
+            writeCountdownsToFile(countdowns);
+            //client.say(channel, `Counter for "${title}" decremented to ${countdowns[countdownID].counter}.`);
+        } else {
+            client.say(channel, `@${tags.username}, countdown "${title}" not found.`);
         }
     }
 
@@ -225,6 +248,10 @@ exports.countd = async function countd(client, message, channel, tags) {
                 removeCountdown(client, channel, tags, input.slice(2).join(" "));
             } else if (input[1] === "edit") {
                 editCountdown(client, channel, tags, input.slice(2).join(" "));
+            } else if (input[1] === "+") {
+                incrementCounter(client, channel, tags, input.slice(2).join(" "));
+            } else if (input[1] === "-") {
+                decrementCounter(client, channel, tags, input.slice(2).join(" "));
             } else {
                 client.say(channel, `@${tags.username}, invalid usage of command.`);
             }
