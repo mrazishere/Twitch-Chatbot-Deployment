@@ -92,9 +92,15 @@ async function main() {
     const commands = {};
     const glob = require("glob");
 
+    const excludedCommands = ['']; // Add the commands you want to exclude here
+
     glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`).forEach(file => {
       const commandExports = require(file);
       const functionName = file.split('/').pop().replace('.js', '');
+
+      if (excludedCommands.includes(functionName)) {
+        return; // Skip this command
+      }
 
       if (typeof commandExports[functionName] === 'function') {
         commands[functionName] = commandExports[functionName];
