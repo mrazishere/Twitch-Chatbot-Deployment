@@ -94,7 +94,7 @@ const tr_lang = {
     'ru': ['ru', 'говорит'],
     'sm': ['sm', 'faʻamau'],
     'gd': ['gd', 'innis'],
-    'sr': ['sr', 'каже'],
+    //'sr': ['sr', 'каже'],
     'st': ['st', 'khutla'],
     'sn': ['sn', 'anoda'],
     'sd': ['sd', 'کاندو'],
