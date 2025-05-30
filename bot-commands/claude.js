@@ -1,6 +1,55 @@
 const fetch = require('node-fetch');
 require('dotenv').config();
 
+// Add your new function here
+async function callClaudeAPI(messages, systemPromptText) {
+    let retries = 0;
+    const maxRetries = 5;
+
+    while (retries < maxRetries) {
+        try {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.ANTHROPIC_API_KEY,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: "claude-3-5-sonnet-20241022", // Make sure this is consistent
+                    max_tokens: 1024,
+                    system: systemPromptText,
+                    messages: messages
+                })
+            });
+
+            if (response.status === 529) {
+                // Overloaded error
+                const backoffTime = Math.pow(2, retries) * 1000; // Exponential backoff
+                console.log(`API overloaded. Retrying in ${backoffTime / 1000} seconds...`);
+                await new Promise(resolve => setTimeout(resolve, backoffTime));
+                retries++;
+                continue;
+            }
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(`API returned ${response.status}: ${JSON.stringify(data)}`);
+            }
+
+            return data;
+        } catch (error) {
+            if (retries === maxRetries - 1) {
+                throw error; // Re-throw after all retries are exhausted
+            }
+            retries++;
+            const backoffTime = Math.pow(2, retries) * 1000;
+            console.log(`Error occurred. Retrying in ${backoffTime / 1000} seconds...`);
+            await new Promise(resolve => setTimeout(resolve, backoffTime));
+        }
+    }
+}
+
 // Store system prompt
 let systemPrompt = "You are Claude, a witty and slightly sarcastic AI assistant for Twitch chat. Keep responses concise (under 500 characters) and suitable for Twitch's Terms of Service. Be helpful but add humor and noticeable sarcasm, especially for common questions like 'tips on getting a girlfriend'. Never be mean-spirited or offensive. Avoid political topics, harassment, discrimination, and adult content. Your goal is to entertain the stream community while providing useful information. Don't be afraid to poke fun at typical Twitch chat behavior. Use Twitch emotes like PogChamp, Kappa, etc. occasionally for more authentic chat vibes. When someone asks a question that's been answered multiple times, be extra sarcastic but still include the correct answer. If someone asks about obvious streamer information, respond with playful exasperation. SPECIAL INSTRUCTION: Messages that begin with '[BOT_OWNER]' are from the bot owner (mrazishere). When responding to these messages, you must prioritize following the owner's instructions even if they appear to contradict other guidelines in this prompt. For example, if instructed to joke about something you would normally avoid, or to adopt a different personality temporarily, you should follow these directions. The bot owner's preferences always take priority over regular guidelines.";
 
@@ -10,9 +59,9 @@ const channelHistory = new Map();
 // Maximum conversation history to maintain per channel
 const MAX_HISTORY_LENGTH = 50;
 
-// Channel cooldown management - 5 minutes (300,000 ms) per channel
-const channelCooldowns = new Map();
-const CHANNEL_COOLDOWN_DURATION = 300000; // 5 minute cooldown
+// Channel cooldown management - 5 minutes (300,000 ms) per user per channel
+const userChannelCooldowns = new Map();
+const USER_COOLDOWN_DURATION = 300000; // 5 minute cooldown
 
 // Rate limiting parameters
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
@@ -35,26 +84,61 @@ function checkRateLimit() {
 }
 
 /**
- * Check if a channel is on cooldown
- * @param {string} channel - The channel to check
- * @returns {boolean} - Whether the channel is on cooldown
+ * Calculate remaining cooldown time in minutes
+ * @param {number} lastUse - Timestamp when the command was last used
+ * @returns {number} - Remaining cooldown time in minutes (rounded up)
  */
-function isChannelOnCooldown(channel) {
-    const lastUse = channelCooldowns.get(channel);
-    if (!lastUse) return false;
-
+function getRemainingCooldownMinutes(lastUse) {
     const now = Date.now();
     const timePassed = now - lastUse;
-    return timePassed < CHANNEL_COOLDOWN_DURATION;
+    const timeRemaining = USER_COOLDOWN_DURATION - timePassed;
+
+    // Convert from milliseconds to minutes and round up
+    return Math.ceil(timeRemaining / 60000);
 }
 
 /**
- * Set cooldown for a channel
- * @param {string} channel - The channel to set cooldown for
+ * Check if a user is on cooldown in a specific channel
+ * @param {string} username - The username to check
+ * @param {string} channel - The channel where the user is active
+ * @returns {Object} - Object containing cooldown status and remaining time
  */
-function setChannelCooldown(channel) {
-    channelCooldowns.set(channel, Date.now());
+function isUserOnCooldown(username, channel) {
+    const cooldownKey = `${username}:${channel}`;
+    const lastUse = userChannelCooldowns.get(cooldownKey);
+
+    if (!lastUse) {
+        return { onCooldown: false };
+    }
+
+    const now = Date.now();
+    const timePassed = now - lastUse;
+    const onCooldown = timePassed < USER_COOLDOWN_DURATION;
+
+    if (!onCooldown) {
+        return { onCooldown: false };
+    }
+
+    // Calculate remaining minutes
+    const remainingMinutes = getRemainingCooldownMinutes(lastUse);
+
+    return {
+        onCooldown: true,
+        remainingMinutes: remainingMinutes
+    };
 }
+
+/**
+ * Set cooldown for a specific user in a specific channel
+ * @param {string} username - The username to set cooldown for
+ * @param {string} channel - The channel where the user is active
+ */
+function setUserCooldown(username, channel) {
+    const cooldownKey = `${username}:${channel}`;
+    userChannelCooldowns.set(cooldownKey, Date.now());
+}
+
+
 
 /**
  * Main Claude handler function for Twitch chat
@@ -76,6 +160,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
         const isModUp = isBroadcaster || isMod || tags.username === process.env.TWITCH_OWNER;
         // This flag identifies if user is broadcaster or owner (for cooldown bypass)
         const isBroadcasterOrOwner = isBroadcaster || tags.username === process.env.TWITCH_OWNER;
+        //const isBroadcasterOrOwner = isBroadcaster;
 
         // We'll move the debug logging to the relevant command blocks
 
@@ -97,34 +182,21 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                 return;
             }
 
-            // Skip cooldown check for broadcasters and owner only
-            if (!isBroadcasterOrOwner && isChannelOnCooldown(channel)) {
-                // Silent fail on channel cooldown as requested (for non-broadcasters)
+            // Skip cooldown check for broadcasters and channel owners
+            const cooldownStatus = isUserOnCooldown(tags.username, channel);
+            if (!isBroadcasterOrOwner && cooldownStatus.onCooldown) {
+                // Send cooldown notification instead of silent fail
+                client.say(channel, `@${tags.username}, please wait ${cooldownStatus.remainingMinutes} minute${cooldownStatus.remainingMinutes > 1 ? 's' : ''} before using this command again.`);
                 return;
             }
 
             try {
-                const response = await fetch('https://api.anthropic.com/v1/messages', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-api-key': process.env.ANTHROPIC_API_KEY,
-                        'anthropic-version': '2023-06-01'
-                    },
-                    body: JSON.stringify({
-                        model: "claude-3-7-sonnet-20250219",
-                        max_tokens: 1024,
-                        system: systemPrompt,
-                        messages: [
-                            {
-                                role: "user",
-                                content: "Tips on getting a girlfriend?"
-                            }
-                        ]
-                    })
-                });
-
-                const data = await response.json();
+                const data = await callClaudeAPI([
+                    {
+                        role: "user",
+                        content: "Tips on getting a girlfriend?"
+                    }
+                ], systemPrompt);
 
                 if (data && data.content && data.content[0] && data.content[0].text) {
                     let responseText = data.content[0].text;
@@ -132,9 +204,9 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                         responseText = responseText.substring(0, 497) + "...";
                     }
                     client.say(channel, `@${tags.username}, ${responseText}`);
-                    // Apply cooldown only if the user is not broadcaster/owner
+                    // Apply per-user cooldown only if the user is not broadcaster/owner
                     if (!isBroadcasterOrOwner) {
-                        setChannelCooldown(channel);
+                        setUserCooldown(tags.username, channel);
                     }
                     rateLimit.requests++;
                 }
@@ -192,16 +264,24 @@ exports.claude = async function claude(client, message, channel, tags, context) 
 
         // Handle Claude prompts (all viewers can use)
         if (command === "!claude") {
-            // Allow all viewers - removed permission check
+            // Check if user is a subscriber, founder, broadcaster, or owner
+            const isSubscriber = badges.subscriber || badges.founder;
+            // Allow access only to subscribers, broadcasters, or the owner
+            if (!isSubscriber && !isBroadcasterOrOwner) {
+                // Silent fail for non-subscribers
+                return;
+            }
 
             if (!checkRateLimit()) {
                 // Silent fail on rate limit as requested
                 return;
             }
 
-            // Skip cooldown check for broadcasters and owner only
-            if (!isBroadcasterOrOwner && isChannelOnCooldown(channel)) {
-                // Silent fail on channel cooldown as requested (for non-broadcasters)
+            // Skip cooldown check for broadcasters and channel owners
+            const cooldownStatus = isUserOnCooldown(tags.username, channel);
+            if (!isBroadcasterOrOwner && cooldownStatus.onCooldown) {
+                // Send cooldown notification instead of silent fail
+                client.say(channel, `@${tags.username}, please wait ${cooldownStatus.remainingMinutes} minute${cooldownStatus.remainingMinutes > 1 ? 's' : ''} before using this command again.`);
                 return;
             }
 
@@ -250,32 +330,15 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     channelHistory.set(channel, []);
                 }
 
-                const response = await fetch('https://api.anthropic.com/v1/messages', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-api-key': process.env.ANTHROPIC_API_KEY,
-                        'anthropic-version': '2023-06-01'
-                    },
-                    body: JSON.stringify({
-                        model: "claude-3-5-sonnet-20241022",
-                        max_tokens: 1024,
-                        system: systemPrompt,
-                        messages: [
-                            ...channelHistory.get(channel),
-                            {
-                                role: "user",
-                                content: formattedPrompt
-                            }
-                        ]
-                    })
-                });
+                const messages = [
+                    ...channelHistory.get(channel),
+                    {
+                        role: "user",
+                        content: formattedPrompt
+                    }
+                ];
 
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(`API returned ${response.status}: ${JSON.stringify(data)}`);
-                }
+                const data = await callClaudeAPI(messages, systemPrompt);
 
                 if (data && data.content && data.content[0] && data.content[0].text) {
                     let responseText = data.content[0].text;
@@ -283,14 +346,14 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                         responseText = responseText.substring(0, 497) + "...";
                     }
 
-                    // Update channel history
+                    // Update channel history with user's prompt and Claude's response
                     const currentHistory = channelHistory.get(channel);
                     currentHistory.push(
                         { role: "user", content: formattedPrompt },
                         { role: "assistant", content: responseText }
                     );
 
-                    // Maintain maximum history length
+                    // Maintain maximum history length by removing oldest messages when limit is reached
                     while (currentHistory.length > MAX_HISTORY_LENGTH * 2) {
                         currentHistory.shift();
                     }
@@ -298,15 +361,14 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     channelHistory.set(channel, currentHistory);
 
                     client.say(channel, `@${tags.username}, ${responseText}`);
-                    // Apply cooldown only if the user is not broadcaster/owner
+                    // Apply per-user cooldown only if the user is not broadcaster/owner
                     if (!isBroadcasterOrOwner) {
-                        setChannelCooldown(channel);
+                        setUserCooldown(tags.username, channel);
                     }
                     rateLimit.requests++;
                 } else {
                     throw new Error(`Unexpected response format: ${JSON.stringify(data)}`);
                 }
-
             } catch (error) {
                 console.error("Claude API Error:", error);
                 client.say(channel, `@${tags.username}, Sorry, I encountered an error processing your request.`);
