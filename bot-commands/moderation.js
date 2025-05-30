@@ -1,5 +1,5 @@
 // /bot-commands/moderation.js
-// Moderation commands for multi-channel bot with per-channel OAuth support
+// Moderation commands using bot's OAuth token for all moderation actions
 
 const fs = require('fs');
 const path = require('path');
@@ -29,7 +29,7 @@ function loadChannelConfig(channelName) {
     return null;
 }
 
-// Get API clients for the channel
+// SIMPLIFIED: Get API clients using bot's OAuth token only
 async function getApiClients(channelName) {
     const { ApiClient } = require('@twurple/api');
     const { StaticAuthProvider } = require('@twurple/auth');
@@ -39,18 +39,23 @@ async function getApiClients(channelName) {
         return { chatApi: null, moderationApi: null, config: null };
     }
 
-    // Chat API client (for user lookups)
+    // Bot's OAuth token from environment variables
+    const botOAuthToken = process.env.TWITCH_OAUTH.replace('oauth:', '');
+
+    console.log(`[${getTimestamp()}] info: Using bot's OAuth token for moderation in ${channelName}`);
+
+    // Chat API client (for user lookups) - using bot's OAuth
     const chatAuthProvider = new StaticAuthProvider(
         process.env.TWITCH_CLIENTID,
-        process.env.TWITCH_OAUTH.replace('oauth:', ''),
+        botOAuthToken,
         ['chat:read', 'chat:edit']
     );
     const chatApi = new ApiClient({ authProvider: chatAuthProvider });
 
-    // Moderation API client (for moderation actions)
+    // Moderation API client (for moderation actions) - using bot's OAuth
     const moderationAuthProvider = new StaticAuthProvider(
-        channelConfig.clientId,
-        channelConfig.oauthToken.replace('oauth:', ''),
+        process.env.TWITCH_CLIENTID,
+        botOAuthToken,
         [
             'chat:read',
             'chat:edit',
@@ -65,33 +70,35 @@ async function getApiClients(channelName) {
     return { chatApi, moderationApi, moderationAuthProvider, config: channelConfig };
 }
 
-// Timeout user function
+// UPDATED: Timeout user function using bot's OAuth
 async function timeoutUser(channelName, username, duration = 600, reason = '') {
-    // Clean the username (remove @ if present)
     const cleanedUsername = cleanUsername(username);
 
     const { chatApi, moderationApi, moderationAuthProvider, config } = await getApiClients(channelName);
 
     if (!moderationApi) {
-        return { success: false, message: "Moderation not configured for this channel" };
+        return {
+            success: false,
+            message: "Moderation not configured for this channel"
+        };
     }
 
     try {
-        console.log(`[${getTimestamp()}] info: Moderation: Attempting timeout ${cleanedUsername} for ${duration}s (original input: ${username})`);
+        console.log(`[${getTimestamp()}] info: Moderation: Bot attempting timeout ${cleanedUsername} for ${duration}s (original input: ${username})`);
 
-        // Get user information
+        // Get user information - bot looks up broadcaster, target user, and itself as moderator
         const broadcaster = await chatApi.users.getUserByName(channelName);
         const user = await moderationApi.users.getUserByName(cleanedUsername);
-        const moderator = await moderationApi.users.getUserByName(config.moderatorUsername);
+        const botModerator = await moderationApi.users.getUserByName(process.env.TWITCH_USERNAME); // Bot as moderator
 
-        if (!broadcaster || !user || !moderator) {
+        if (!broadcaster || !user || !botModerator) {
             console.log(`[${getTimestamp()}] error: User lookup failed for ${cleanedUsername}`);
             return { success: false, message: `User lookup failed for ${cleanedUsername}` };
         }
 
-        // Direct API call to Twitch (bypassing Twurple's buggy banUser method)
+        // Direct API call to Twitch using bot as the moderator
         const fetch = require('node-fetch');
-        const banUrl = `https://api.twitch.tv/helix/moderation/bans?broadcaster_id=${broadcaster.id}&moderator_id=${moderator.id}`;
+        const banUrl = `https://api.twitch.tv/helix/moderation/bans?broadcaster_id=${broadcaster.id}&moderator_id=${botModerator.id}`;
 
         const banPayload = {
             data: {
@@ -106,52 +113,68 @@ async function timeoutUser(channelName, username, duration = 600, reason = '') {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token.accessToken}`,
-                'Client-Id': config.clientId,
+                'Client-Id': process.env.TWITCH_CLIENTID,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(banPayload)
         });
 
         if (response.ok) {
-            console.log(`[${getTimestamp()}] info: Successfully timed out ${cleanedUsername} for ${duration}s`);
+            console.log(`[${getTimestamp()}] info: Bot successfully timed out ${cleanedUsername} for ${duration}s`);
             return { success: true, message: `Timed out ${cleanedUsername} for ${duration}s` };
         } else {
             const responseData = await response.json();
             console.log(`[${getTimestamp()}] error: Timeout failed:`, responseData);
+
+            // Handle specific error cases
+            if (responseData.message && responseData.message.includes('insufficient privileges')) {
+                return { success: false, message: `Bot lacks moderation permissions. Ensure bot is a moderator in this channel (/mod ${process.env.TWITCH_USERNAME})` };
+            } else if (responseData.message && responseData.message.includes('token')) {
+                return { success: false, message: `Bot's OAuth token issue. Check bot authentication.` };
+            }
+
             return { success: false, message: `Timeout failed: ${responseData.message || 'API Error'}` };
         }
 
     } catch (error) {
         console.log(`[${getTimestamp()}] error: Timeout failed:`, error.message);
+
+        // Handle OAuth-related errors
+        if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+            return { success: false, message: `Bot's OAuth token expired or invalid. Check bot authentication.` };
+        }
+
         return { success: false, message: `Timeout failed: ${error.message}` };
     }
 }
 
-// Ban user function
+// UPDATED: Ban user function using bot's OAuth
 async function banUser(channelName, username, reason = '') {
-    // Clean the username (remove @ if present)
     const cleanedUsername = cleanUsername(username);
 
     const { chatApi, moderationApi, moderationAuthProvider, config } = await getApiClients(channelName);
 
     if (!moderationApi) {
-        return { success: false, message: "Moderation not configured for this channel" };
+        return {
+            success: false,
+            message: "Moderation not configured for this channel"
+        };
     }
 
     try {
-        console.log(`[${getTimestamp()}] info: Moderation: Attempting to ban ${cleanedUsername} (original input: ${username})`);
+        console.log(`[${getTimestamp()}] info: Moderation: Bot attempting to ban ${cleanedUsername} (original input: ${username})`);
 
         const broadcaster = await chatApi.users.getUserByName(channelName);
         const user = await moderationApi.users.getUserByName(cleanedUsername);
-        const moderator = await moderationApi.users.getUserByName(config.moderatorUsername);
+        const botModerator = await moderationApi.users.getUserByName(process.env.TWITCH_USERNAME); // Bot as moderator
 
-        if (!broadcaster || !user || !moderator) {
+        if (!broadcaster || !user || !botModerator) {
             return { success: false, message: `User lookup failed for ${cleanedUsername}` };
         }
 
         // Direct API call for permanent ban
         const fetch = require('node-fetch');
-        const banUrl = `https://api.twitch.tv/helix/moderation/bans?broadcaster_id=${broadcaster.id}&moderator_id=${moderator.id}`;
+        const banUrl = `https://api.twitch.tv/helix/moderation/bans?broadcaster_id=${broadcaster.id}&moderator_id=${botModerator.id}`;
 
         const banPayload = {
             data: {
@@ -165,71 +188,101 @@ async function banUser(channelName, username, reason = '') {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token.accessToken}`,
-                'Client-Id': config.clientId,
+                'Client-Id': process.env.TWITCH_CLIENTID,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(banPayload)
         });
 
         if (response.ok) {
-            console.log(`[${getTimestamp()}] info: Successfully banned ${cleanedUsername}`);
+            console.log(`[${getTimestamp()}] info: Bot successfully banned ${cleanedUsername}`);
             return { success: true, message: `Banned ${cleanedUsername}` };
         } else {
             const responseData = await response.json();
+
+            // Handle specific error cases
+            if (responseData.message && responseData.message.includes('insufficient privileges')) {
+                return { success: false, message: `Bot lacks moderation permissions. Ensure bot is a moderator in this channel (/mod ${process.env.TWITCH_USERNAME})` };
+            } else if (responseData.message && responseData.message.includes('token')) {
+                return { success: false, message: `Bot's OAuth token issue. Check bot authentication.` };
+            }
+
             return { success: false, message: `Ban failed: ${responseData.message || 'API Error'}` };
         }
 
     } catch (error) {
         console.log(`[${getTimestamp()}] error: Ban failed:`, error.message);
+
+        // Handle OAuth-related errors
+        if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+            return { success: false, message: `Bot's OAuth token expired or invalid. Check bot authentication.` };
+        }
+
         return { success: false, message: `Ban failed: ${error.message}` };
     }
 }
 
-// Unban user function
+// UPDATED: Unban user function using bot's OAuth
 async function unbanUser(channelName, username) {
-    // Clean the username (remove @ if present)
     const cleanedUsername = cleanUsername(username);
 
     const { chatApi, moderationApi, moderationAuthProvider, config } = await getApiClients(channelName);
 
     if (!moderationApi) {
-        return { success: false, message: "Moderation not configured for this channel" };
+        return {
+            success: false,
+            message: "Moderation not configured for this channel"
+        };
     }
 
     try {
-        console.log(`[${getTimestamp()}] info: Moderation: Attempting to unban ${cleanedUsername} (original input: ${username})`);
+        console.log(`[${getTimestamp()}] info: Moderation: Bot attempting to unban ${cleanedUsername} (original input: ${username})`);
 
         const broadcaster = await chatApi.users.getUserByName(channelName);
         const user = await moderationApi.users.getUserByName(cleanedUsername);
-        const moderator = await moderationApi.users.getUserByName(config.moderatorUsername);
+        const botModerator = await moderationApi.users.getUserByName(process.env.TWITCH_USERNAME); // Bot as moderator
 
-        if (!broadcaster || !user || !moderator) {
+        if (!broadcaster || !user || !botModerator) {
             return { success: false, message: `User lookup failed for ${cleanedUsername}` };
         }
 
         // Direct API call for unban
         const fetch = require('node-fetch');
-        const unbanUrl = `https://api.twitch.tv/helix/moderation/bans?broadcaster_id=${broadcaster.id}&moderator_id=${moderator.id}&user_id=${user.id}`;
+        const unbanUrl = `https://api.twitch.tv/helix/moderation/bans?broadcaster_id=${broadcaster.id}&moderator_id=${botModerator.id}&user_id=${user.id}`;
 
         const token = await moderationAuthProvider.getAccessTokenForUser();
         const response = await fetch(unbanUrl, {
             method: 'DELETE',
             headers: {
                 'Authorization': `Bearer ${token.accessToken}`,
-                'Client-Id': config.clientId
+                'Client-Id': process.env.TWITCH_CLIENTID
             }
         });
 
         if (response.status === 204) { // 204 = No Content (success for DELETE)
-            console.log(`[${getTimestamp()}] info: Successfully unbanned ${cleanedUsername}`);
+            console.log(`[${getTimestamp()}] info: Bot successfully unbanned ${cleanedUsername}`);
             return { success: true, message: `Unbanned ${cleanedUsername}` };
         } else {
             const responseData = await response.json();
+
+            // Handle specific error cases
+            if (responseData.message && responseData.message.includes('insufficient privileges')) {
+                return { success: false, message: `Bot lacks moderation permissions. Ensure bot is a moderator in this channel (/mod ${process.env.TWITCH_USERNAME})` };
+            } else if (responseData.message && responseData.message.includes('token')) {
+                return { success: false, message: `Bot's OAuth token issue. Check bot authentication.` };
+            }
+
             return { success: false, message: `Unban failed: ${responseData.message || 'API Error'}` };
         }
 
     } catch (error) {
         console.log(`[${getTimestamp()}] error: Unban failed:`, error.message);
+
+        // Handle OAuth-related errors
+        if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+            return { success: false, message: `Bot's OAuth token expired or invalid. Check bot authentication.` };
+        }
+
         return { success: false, message: `Unban failed: ${error.message}` };
     }
 }
@@ -254,7 +307,7 @@ function moderation(client, message, channel, tags) {
         // Parse redemption data: "REDEMPTION_TIMEOUT:username:redeemer:duration"
         const parts = message.split(':');
         if (parts.length >= 4) {
-            const targetUsername = cleanUsername(parts[1]); // Clean the target username
+            const targetUsername = cleanUsername(parts[1]);
             const redeemerUsername = parts[2];
             const duration = parseInt(parts[3]) || 60;
 
@@ -335,6 +388,18 @@ function moderation(client, message, channel, tags) {
                     });
             } else {
                 client.say(channel, "Usage: !unban <username> (@ symbol optional)");
+            }
+            break;
+
+        // UPDATED: Bot OAuth status command
+        case '!botstatus':
+            if (isModUp) {
+                const botOAuthToken = process.env.TWITCH_OAUTH;
+                if (botOAuthToken && botOAuthToken !== 'oauth:pending_oauth_generation') {
+                    client.say(channel, `✅ Bot OAuth token is configured. Bot can perform moderation actions if it has moderator status.`);
+                } else {
+                    client.say(channel, `❌ Bot OAuth token not configured. Check bot's .env file.`);
+                }
             }
             break;
     }

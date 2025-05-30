@@ -1,13 +1,11 @@
 async function main() {
   // Require necessary node modules
-  // Make the variables inside the .env element available to our Node project
   require('dotenv').config();
   const tmi = require('tmi.js');
   const fs = require('fs');
   const { exec } = require("child_process");
   const crypto = require('crypto');
-
-  // REMOVED: node-twitch dependency completely removed since we're migrating to Twurple
+  const axios = require('axios'); // NEW: Add axios for OAuth API calls
 
   // TMI Twitch IRC Setup connection configurations
   const client = new tmi.Client({
@@ -37,6 +35,39 @@ async function main() {
     return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
 
+  // NEW: Function to check OAuth status via API
+  async function checkOAuthStatus(channelName) {
+    try {
+      const response = await axios.get(`https://mr-ai.dev/auth/token?channel=${channelName}`);
+      return {
+        hasOAuth: true,
+        username: response.data.username,
+        source: 'OAuth Service'
+      };
+    } catch (error) {
+      return {
+        hasOAuth: false,
+        error: error.response?.data?.error || error.message,
+        source: 'None'
+      };
+    }
+  }
+
+  // NEW: Function to create default channel config (integrated with OAuth system)
+  function createDefaultChannelConfig(channelName) {
+    return {
+      channelName: channelName,
+      chatOnly: false, // NEW: Default to full features since OAuth handles permissions
+      moderationEnabled: true, // NEW: Default enabled, requires OAuth for activation
+      clientId: process.env.TWITCH_CLIENTID,
+      moderatorUsername: channelName,
+      lastUpdated: new Date().toISOString(),
+      redemptionEnabled: true,
+      redemptionRewardId: "",
+      redemptionTimeoutDuration: 60
+    };
+  }
+
   // When the bot is on, it shall fetch the messages sent by user from the specified channel
   client.on('message', (channel, tags, message, self) => {
     if (self) return;
@@ -53,7 +84,7 @@ async function main() {
     // Set max number of channels to allow bot to be added to
     const maxChannels = `${process.env.MAX_CHANNELS}`;
 
-    // FIXED: Add bot Function - Updated to use new Twurple template
+    // UPDATED: Add bot Function - Now creates default channel config
     async function addme() {
       const currentTime = getTimestamp();
       const input = message.split(" ");
@@ -63,10 +94,10 @@ async function main() {
         console.log(`${currentTime}: @${tags.username} performed !addme as mod for ${addUser}`);
       }
 
-      exec(`pm2 ls | grep "${addUser}"`, (error, stdout, stderr) => {
+      exec(`pm2 ls | grep "${addUser}"`, async (error, stdout, stderr) => {
         if (error) {
           console.log(`error: ${error.message}`);
-          exec(`pm2 status | grep online | wc -l`, (error, stdout, stderr) => {
+          exec(`pm2 status | grep online | wc -l`, async (error, stdout, stderr) => {
             if (error) {
               console.log(`error: ${error.message}`);
               return;
@@ -78,12 +109,30 @@ async function main() {
             console.log(`stdout: ${stdout}`);
 
             if (parseInt(stdout) <= maxChannels) {
-              // UPDATED: Use the new Twurple template file
+              // NEW: Create default channel config when adding bot
+              const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
+              const configPath = `${configDir}/${addUser}.json`;
+
+              try {
+                if (!fs.existsSync(configDir)) {
+                  fs.mkdirSync(configDir, { recursive: true });
+                }
+
+                if (!fs.existsSync(configPath)) {
+                  const defaultConfig = createDefaultChannelConfig(addUser);
+                  fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
+                  console.log(`Created default config for ${addUser}`);
+                }
+              } catch (configError) {
+                console.log(`Warning: Could not create config for ${addUser}:`, configError.message);
+              }
+
+              // Use the updated Twurple template file
               let buffer = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template(new).js`);
               const templateData = buffer.toString();
               const newData = templateData.replace(
                 "$$UPDATEHERE$$",
-                `${addUser}` // Just username for Twurple template
+                `${addUser}`
               );
 
               fs.writeFile(`${process.env.BOT_FULL_PATH}/channels/${addUser}.js`, newData, (err) => {
@@ -136,7 +185,7 @@ module.exports = {
                   return;
                 }
                 console.log(`stdout: ${stdout}`);
-                client.say(channel, `Added successfully to #${addUser} chat using Twurple! Check my about page for available commands including new moderation features. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`);
+                client.say(channel, `Added Mr-AI-is-Here bot to #${addUser}! 🚀 Generate OAuth tokens at https://mr-ai.dev/auth to enable full features. Check my about page for available commands.`);
               });
             } else {
               client.say(channel, `New bot deployment is currently disabled due to max capacity(${maxChannels}). Whisper @${process.env.TWITCH_OWNER} if you require this urgently for an exception.`);
@@ -162,7 +211,7 @@ module.exports = {
               return;
             }
             console.log(`stdout: ${stdout}`);
-            client.say(channel, `Restarting Twurple bot on #${addUser} chat. Check my about page for available commands including new moderation features. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`);
+            client.say(channel, `Restarting Mr-AI-is-Here bot for #${addUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/auth for full features.`);
           });
         } else {
           exec(`pm2 restart "${addUser}"`, (error, stdout, stderr) => {
@@ -175,7 +224,7 @@ module.exports = {
               return;
             }
             console.log(`stdout: ${stdout}`);
-            client.say(channel, `Bot is seen offline, restarting Twurple bot on #${addUser} chat. Check my about page for available commands including new moderation features. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`);
+            client.say(channel, `Bot was offline, restarting Mr-AI-is-Here bot for #${addUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/auth for full features.`);
           });
         }
       });
@@ -226,7 +275,7 @@ module.exports = {
               return;
             }
             console.log(`stdout: ${stdout}`);
-            client.say(channel, `Removed successfully from #${removeUser} chat. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`);
+            client.say(channel, `Removed Mr-AI-is-Here bot from #${removeUser} chat. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`);
           });
         } else {
           client.say(channel, "Error: Already removed, !addme to add me to your channel");
@@ -374,7 +423,7 @@ module.exports = {
           redeployCount++;
         }
       });
-      client.say(channel, `Redeployed & restarted ${redeployCount} bots with new Twurple template! All bots now have moderation capabilities.`);
+      client.say(channel, `Redeployed & restarted ${redeployCount} Mr-AI-is-Here bots with new template! OAuth tokens at https://mr-ai.dev/auth`);
     }
 
     // Batch migration function
@@ -426,6 +475,18 @@ module.exports = {
             // Backup
             const oldData = fs.readFileSync(channelFile, "utf8");
             fs.writeFileSync(`${channelFile}.backup`, oldData, "utf8");
+
+            // NEW: Create default config if it doesn't exist
+            const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
+            const configPath = `${configDir}/${channelname}.json`;
+
+            if (!fs.existsSync(configPath)) {
+              if (!fs.existsSync(configDir)) {
+                fs.mkdirSync(configDir, { recursive: true });
+              }
+              const defaultConfig = createDefaultChannelConfig(channelname);
+              fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
+            }
 
             // Migrate
             const newTemplate = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template(new).js`, "utf8");
@@ -492,9 +553,7 @@ module.exports = {
       client.say(channel, `🔄 Emergency rollback complete! Restored ${rolledBack} channels to previous versions.`);
     }
 
-    // Add these functions to your deployment manager bot
-
-    // Function to enable moderation for a specific channel
+    // UPDATED: Enable moderation function (now OAuth-aware)
     async function enableModeration() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -502,15 +561,12 @@ module.exports = {
       }
 
       const input = message.split(" ");
-      if (input.length < 4) {
-        client.say(channel, "Usage: !enablemod <channel> <moderator_username> <oauth_token>");
+      if (input.length < 2) {
+        client.say(channel, "Usage: !enablemod <channel> - Enable moderation (OAuth required at https://mr-ai.dev/auth)");
         return;
       }
 
       const targetChannel = input[1].toLowerCase();
-      const moderatorUsername = input[2].toLowerCase();
-      const oauthToken = input[3];
-
       const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
       const configPath = `${configDir}/${targetChannel}.json`;
 
@@ -520,17 +576,24 @@ module.exports = {
           fs.mkdirSync(configDir, { recursive: true });
         }
 
-        const config = {
-          channelName: targetChannel,
-          chatOnly: false,
-          moderationEnabled: true,
-          oauthToken: oauthToken,
-          clientId: process.env.TWITCH_CLIENTID,
-          moderatorUsername: moderatorUsername,
-          lastUpdated: new Date().toISOString()
-        };
+        // Load existing config or create default
+        let config;
+        if (fs.existsSync(configPath)) {
+          config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        } else {
+          config = createDefaultChannelConfig(targetChannel);
+        }
+
+        // Update moderation settings
+        config.moderationEnabled = true;
+        config.chatOnly = false;
+        config.moderatorUsername = targetChannel;
+        config.lastUpdated = new Date().toISOString();
 
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+        // Check OAuth status
+        const oauthStatus = await checkOAuthStatus(targetChannel);
 
         // Restart the bot instance to apply changes
         exec(`pm2 restart "${targetChannel}"`, (error, stdout, stderr) => {
@@ -538,7 +601,12 @@ module.exports = {
             client.say(channel, `Failed to restart ${targetChannel}: ${error.message}`);
             return;
           }
-          client.say(channel, `✅ Moderation enabled for #${targetChannel}! Bot restarted.`);
+
+          if (oauthStatus.hasOAuth) {
+            client.say(channel, `✅ Moderation enabled for #${targetChannel}! OAuth token detected. Bot restarted with full features.`);
+          } else {
+            client.say(channel, `⚠️ Moderation enabled for #${targetChannel} but no OAuth token found. Generate token at https://mr-ai.dev/auth for full features.`);
+          }
         });
 
       } catch (error) {
@@ -546,7 +614,7 @@ module.exports = {
       }
     }
 
-    // Function to disable moderation for a specific channel
+    // UPDATED: Disable moderation function
     async function disableModeration() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -563,15 +631,16 @@ module.exports = {
       const configPath = `${process.env.BOT_FULL_PATH}/channel-configs/${targetChannel}.json`;
 
       try {
-        const config = {
-          channelName: targetChannel,
-          chatOnly: true,
-          moderationEnabled: false,
-          oauthToken: null,
-          clientId: process.env.TWITCH_CLIENTID,
-          moderatorUsername: null,
-          lastUpdated: new Date().toISOString()
-        };
+        let config;
+        if (fs.existsSync(configPath)) {
+          config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        } else {
+          config = createDefaultChannelConfig(targetChannel);
+        }
+
+        config.moderationEnabled = false;
+        config.chatOnly = true;
+        config.lastUpdated = new Date().toISOString();
 
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
@@ -581,7 +650,7 @@ module.exports = {
             client.say(channel, `Failed to restart ${targetChannel}: ${error.message}`);
             return;
           }
-          client.say(channel, `✅ Moderation disabled for #${targetChannel}! Bot restarted.`);
+          client.say(channel, `✅ Moderation disabled for #${targetChannel}! Bot restarted in chat-only mode.`);
         });
 
       } catch (error) {
@@ -589,7 +658,7 @@ module.exports = {
       }
     }
 
-    // Function to check moderation status for channels
+    // UPDATED: Check moderation status function (now OAuth-aware)
     async function checkModerationStatus() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -604,16 +673,22 @@ module.exports = {
         const configPath = `${process.env.BOT_FULL_PATH}/channel-configs/${targetChannel}.json`;
 
         try {
+          let config;
           if (fs.existsSync(configPath)) {
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            client.say(channel,
-              `#${targetChannel}: Moderation ${config.moderationEnabled ? 'Enabled' : 'Disabled'} | ` +
-              `Moderator: ${config.moderatorUsername || 'None'} | ` +
-              `Updated: ${config.lastUpdated || 'Never'}`
-            );
+            config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
           } else {
-            client.say(channel, `#${targetChannel}: Default settings (Chat Only)`);
+            config = { moderationEnabled: false, chatOnly: true };
           }
+
+          // Check OAuth status
+          const oauthStatus = await checkOAuthStatus(targetChannel);
+
+          client.say(channel,
+            `#${targetChannel}: Moderation ${config.moderationEnabled ? 'Enabled' : 'Disabled'} | ` +
+            `OAuth ${oauthStatus.hasOAuth ? '✅' : '❌'} | ` +
+            `Mode: ${config.chatOnly ? 'Chat Only' : 'Full Features'} | ` +
+            `Updated: ${config.lastUpdated || 'Default'}`
+          );
         } catch (error) {
           client.say(channel, `Error checking ${targetChannel}: ${error.message}`);
         }
@@ -625,19 +700,25 @@ module.exports = {
           if (fs.existsSync(configDir)) {
             const configFiles = fs.readdirSync(configDir).filter(file => file.endsWith('.json'));
             let moderationEnabled = 0;
-            let totalChannels = 0;
+            let oauthEnabled = 0;
+            let totalChannels = configFiles.length;
 
-            configFiles.forEach(file => {
+            // Check OAuth status for all channels (limit to avoid rate limits)
+            const sampleSize = Math.min(5, totalChannels);
+            for (let i = 0; i < sampleSize; i++) {
               try {
-                const config = JSON.parse(fs.readFileSync(`${configDir}/${file}`, 'utf8'));
-                totalChannels++;
+                const config = JSON.parse(fs.readFileSync(`${configDir}/${configFiles[i]}`, 'utf8'));
                 if (config.moderationEnabled) moderationEnabled++;
-              } catch (error) {
-                console.log(`Error reading ${file}: ${error.message}`);
-              }
-            });
 
-            client.say(channel, `Moderation Status: ${moderationEnabled}/${totalChannels} channels have moderation enabled`);
+                const channelName = configFiles[i].replace('.json', '');
+                const oauthStatus = await checkOAuthStatus(channelName);
+                if (oauthStatus.hasOAuth) oauthEnabled++;
+              } catch (error) {
+                console.log(`Error checking ${configFiles[i]}: ${error.message}`);
+              }
+            }
+
+            client.say(channel, `Mr-AI-is-Here Status: ${moderationEnabled}/${totalChannels} moderation enabled | ${oauthEnabled}/${sampleSize} OAuth active (sample)`);
           } else {
             client.say(channel, "No channel configurations found");
           }
@@ -647,7 +728,7 @@ module.exports = {
       }
     }
 
-    // Function to list all channels with their moderation status
+    // UPDATED: List channel configs function (now OAuth-aware)
     async function listChannelConfigs() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -665,17 +746,23 @@ module.exports = {
             return;
           }
 
-          let response = "Channel Configs: ";
-          configFiles.forEach(file => {
+          let response = "Mr-AI-is-Here Configs: ";
+          const limit = Math.min(10, configFiles.length); // Limit to prevent message overflow
+
+          for (let i = 0; i < limit; i++) {
             try {
-              const config = JSON.parse(fs.readFileSync(`${configDir}/${file}`, 'utf8'));
+              const config = JSON.parse(fs.readFileSync(`${configDir}/${configFiles[i]}`, 'utf8'));
               const channelName = config.channelName;
               const status = config.moderationEnabled ? "MOD" : "CHAT";
               response += `${channelName}(${status}) `;
             } catch (error) {
-              console.log(`Error reading ${file}: ${error.message}`);
+              console.log(`Error reading ${configFiles[i]}: ${error.message}`);
             }
-          });
+          }
+
+          if (configFiles.length > limit) {
+            response += `... and ${configFiles.length - limit} more`;
+          }
 
           client.say(channel, response);
         } else {
@@ -683,6 +770,124 @@ module.exports = {
         }
       } catch (error) {
         client.say(channel, `Error listing configs: ${error.message}`);
+      }
+    }
+
+    // NEW: OAuth status command
+    async function checkOAuthStatusCommand() {
+      if (!isModUp) {
+        client.say(channel, "Error: You are not a mod");
+        return;
+      }
+
+      const input = message.split(" ");
+      if (input.length < 2) {
+        client.say(channel, "Usage: !oauthstatus <channel> - Check OAuth status for a channel");
+        return;
+      }
+
+      const targetChannel = input[1].toLowerCase();
+
+      try {
+        const oauthStatus = await checkOAuthStatus(targetChannel);
+
+        if (oauthStatus.hasOAuth) {
+          client.say(channel, `✅ #${targetChannel}: OAuth active (${oauthStatus.username}) via ${oauthStatus.source}`);
+        } else {
+          client.say(channel, `❌ #${targetChannel}: No OAuth token. Generate at https://mr-ai.dev/auth`);
+        }
+      } catch (error) {
+        client.say(channel, `Error checking OAuth for ${targetChannel}: ${error.message}`);
+      }
+    }
+
+    // NEW: Bulk OAuth status check
+    async function bulkOAuthCheck() {
+      if (!isModUp) {
+        client.say(channel, "Error: You are not a mod");
+        return;
+      }
+
+      client.say(channel, "🔍 Checking OAuth status for all channels...");
+
+      const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
+
+      try {
+        if (fs.existsSync(configDir)) {
+          const configFiles = fs.readdirSync(configDir).filter(file => file.endsWith('.json'));
+          let withOAuth = 0;
+          let withoutOAuth = 0;
+          let errors = 0;
+
+          const limit = Math.min(20, configFiles.length);
+
+          for (let i = 0; i < limit; i++) {
+            try {
+              const channelName = configFiles[i].replace('.json', '');
+              const oauthStatus = await checkOAuthStatus(channelName);
+
+              if (oauthStatus.hasOAuth) {
+                withOAuth++;
+              } else {
+                withoutOAuth++;
+              }
+
+              await sleep(100);
+            } catch (error) {
+              errors++;
+              console.log(`Error checking OAuth for ${configFiles[i]}: ${error.message}`);
+            }
+          }
+
+          client.say(channel,
+            `OAuth Status Check (${limit}/${configFiles.length} channels): ` +
+            `✅ ${withOAuth} with OAuth | ❌ ${withoutOAuth} without OAuth | ⚠️ ${errors} errors`
+          );
+
+          if (configFiles.length > limit) {
+            client.say(channel, `Note: Checked ${limit}/${configFiles.length} channels to avoid rate limits`);
+          }
+        } else {
+          client.say(channel, "No channel configurations found");
+        }
+      } catch (error) {
+        client.say(channel, `Error during bulk OAuth check: ${error.message}`);
+      }
+    }
+
+    // NEW: Generate OAuth reminder command
+    async function oauthReminder() {
+      if (!isModUp) {
+        client.say(channel, "Error: You are not a mod");
+        return;
+      }
+
+      const input = message.split(" ");
+      if (input.length < 2) {
+        client.say(channel, "Usage: !oauthreminder <channel> - Send OAuth generation reminder");
+        return;
+      }
+
+      const targetChannel = input[1].toLowerCase();
+
+      try {
+        const oauthStatus = await checkOAuthStatus(targetChannel);
+
+        if (oauthStatus.hasOAuth) {
+          client.say(channel, `#${targetChannel} already has OAuth tokens configured ✅`);
+        } else {
+          try {
+            client.say(`#${targetChannel}`,
+              `🔐 Hi @${targetChannel}! Generate OAuth tokens for Mr-AI-is-Here bot at https://mr-ai.dev/auth ` +
+              `to unlock moderation and advanced features! Just sign in with your Twitch account.`
+            );
+            client.say(channel, `✅ OAuth reminder sent to #${targetChannel}`);
+          } catch (sendError) {
+            client.say(channel, `❌ Could not send reminder to #${targetChannel}. Bot may not be active in that channel.`);
+          }
+        }
+      } catch (error) {
+        client.say(channel, `Error sending OAuth reminder: ${error.message}`);
       }
     }
 
@@ -718,6 +923,7 @@ module.exports = {
     if (message.split(" ")[0] === "!grantaccess") {
       //grantAccessTwitchAPI();
     }
+
     if (message.split(" ")[0] === "!enablemod") {
       enableModeration();
     }
@@ -732,6 +938,30 @@ module.exports = {
 
     if (message.split(" ")[0] === "!listconfigs") {
       listChannelConfigs();
+    }
+
+    if (message.split(" ")[0] === "!oauthstatus") {
+      checkOAuthStatusCommand();
+    }
+
+    if (message.split(" ")[0] === "!bulkoauth") {
+      bulkOAuthCheck();
+    }
+
+    if (message.split(" ")[0] === "!oauthreminder") {
+      oauthReminder();
+    }
+
+    if (message.split(" ")[0] === "!help" && isModUp) {
+      const helpMessage =
+        "Mr-AI-is-Here Admin Commands: " +
+        "!addme <user> | !removeme <user> | !redeploy | " +
+        "!enablemod <channel> | !disablemod <channel> | !modstatus [channel] | " +
+        "!oauthstatus <channel> | !bulkoauth | !oauthreminder <channel> | " +
+        "!testmigrate <channel> | !batchmigrate [size] | !rollback <channel> | !rollbackall | " +
+        "OAuth Dashboard: https://mr-ai.dev/auth";
+
+      client.say(channel, helpMessage);
     }
   });
 }

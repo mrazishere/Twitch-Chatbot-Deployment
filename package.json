@@ -36,6 +36,7 @@
     "dotenv": "^16.0.0",
     "express": "^4.19.2",
     "express-http-to-https": "^1.1.4",
+    "express-session": "^1.18.1",
     "glob": "^8.1.0",
     "googletrans": "^1.0.21",
     "mongodb": "^4.12.1",
