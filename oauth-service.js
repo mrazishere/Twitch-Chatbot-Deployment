@@ -87,7 +87,8 @@ function generateLoginAuthUrl() {
 }
 
 // Helper function to generate OAuth URL for channel authorization
-function generateChannelAuthUrl(channelName, scopes = 'chat:read chat:edit channel:moderate moderator:manage:banned_users channel:read:redemptions') {
+//function generateChannelAuthUrl(channelName, scopes = 'chat:read chat:edit channel:moderate moderator:manage:banned_users channel:read:redemptions') {
+function generateChannelAuthUrl(channelName, scopes = 'chat:read channel:read:redemptions') {
     const params = new URLSearchParams({
         client_id: TWITCH_CLIENT_ID,
         redirect_uri: REDIRECT_URI,
@@ -422,7 +423,8 @@ app.get('/auth/generate', requireAuth, async (req, res) => {
         config = await createDefaultChannelConfig(username);
     }
 
-    const scopes = req.query.scopes || 'chat:read chat:edit channel:moderate moderator:manage:banned_users channel:read:redemptions';
+    //const scopes = req.query.scopes || 'chat:read chat:edit channel:moderate moderator:manage:banned_users channel:read:redemptions';
+    const scopes = req.query.scopes || 'chat:read channel:read:redemptions';
     const authUrl = generateChannelAuthUrl(username, scopes);
 
     console.log(`Starting OAuth flow for authenticated user: ${username}`);
@@ -518,7 +520,6 @@ app.get('/auth/callback', async (req, res) => {
             <br>
             <a href="/auth">Back to Your Dashboard</a>
             <br><br>
-            <p><em>You can close this window.</em></p>
         `);
 
     } catch (err) {
