@@ -107,4 +107,4 @@ dist
 channel_timezone.js
 matchmaking.json
 package-lock.json
-./channel-configs
+.channel-configs/
