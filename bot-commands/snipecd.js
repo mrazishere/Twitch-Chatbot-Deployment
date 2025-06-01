@@ -23,8 +23,8 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
     const isBroadcaster = badges.broadcaster;
     const isMod = badges.moderator;
     const isVIP = badges.vip;
-    const isModUp = isBroadcaster || isMod || tags.username === process.env.TWITCH_OWNER;
-    const isVIPUp = isVIP || isModUp;
+    const isModUp = tags.isModUp || isBroadcaster || isMod || tags.username === process.env.TWITCH_OWNER;
+    const isVIPUp = tags.isVIPUp || isVIP || isModUp;
     const channel1 = channel.substring(1);
     let input = message.trimEnd().split(" ");
 
