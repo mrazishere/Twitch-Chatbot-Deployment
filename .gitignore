@@ -104,6 +104,6 @@ dist
 .tern-port
 
 # Script data
-channel_timezone.js
+#channel_timezone.js
 matchmaking.json
 package-lock.json
