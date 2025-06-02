@@ -88,13 +88,16 @@ function generateLoginAuthUrl() {
 
 // Helper function to generate OAuth URL for channel authorization
 //function generateChannelAuthUrl(channelName, scopes = 'chat:read chat:edit channel:moderate moderator:manage:banned_users channel:read:redemptions') {
-function generateChannelAuthUrl(channelName, scopes = 'chat:read channel:read:redemptions') {
+function generateChannelAuthUrl(channelName, scopes = 'channel:read:redemptions chat:read') {
+    // Add timestamp to force fresh authorization
+    const timestamp = Date.now();
     const params = new URLSearchParams({
         client_id: TWITCH_CLIENT_ID,
         redirect_uri: REDIRECT_URI,
         response_type: 'code',
         scope: scopes,
-        state: `channel_auth:${channelName}`
+        state: `channel_auth:${channelName}:${timestamp}`, // Unique state
+        force_verify: 'true' // Force Twitch to show authorization screen
     });
 
     return `https://id.twitch.tv/oauth2/authorize?${params.toString()}`;
@@ -452,7 +455,8 @@ app.get('/auth/callback', async (req, res) => {
         `);
     }
 
-    const channelName = state.replace('channel_auth:', '');
+    const stateParts = state.split(':');
+    const channelName = stateParts[1]; // Extract just the channel name
 
     try {
         // Load existing channel config
