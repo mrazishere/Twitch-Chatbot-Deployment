@@ -55,9 +55,9 @@ exports.readMatchmakingFile = async function readMatchmakingFile() {
 exports.partyMatchmaking = async function partyMatchmaking(client, message, channel, tags) {
   // Set variables for user permission logic
   const badges = tags.badges || {};
-  const isBroadcaster = badges.broadcaster;
-  const isMod = badges.moderator;
-  const isVIP = badges.vip;
+  const isBroadcaster = badges.broadcaster || tags.isBroadcaster;
+  const isMod = badges.moderator || tags.isMod;
+  const isVIP = badges.vip || tags.isVip;
   const isModUp = isBroadcaster || isMod || tags.username == `${process.env.TWITCH_OWNER}`;
   const isVIPUp = isVIP || isModUp;
   const channel1 = channel.substring(1); //channel name (i.e. username)

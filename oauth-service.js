@@ -246,7 +246,7 @@ async function createDefaultChannelConfig(username) {
         moderationEnabled: true,
         oauthToken: "oauth:pending_oauth_generation",
         clientId: TWITCH_CLIENT_ID,
-        moderatorUsername: username,
+        moderatorUsername: process.env.TWITCH_USERNAME,
         lastUpdated: new Date().toISOString(),
         redemptionEnabled: true,
         redemptionRewardId: "",

@@ -11,7 +11,7 @@ async function main() {
   const { StaticAuthProvider } = require('@twurple/auth');
 
   // Import the EventSub manager
-  const { RedemptionEventSubManager } = require(`${process.env.BOT_FULL_PATH}/eventsub-redemptions.js`);
+  const { CustomRewardsEventSubManager } = require(`${process.env.BOT_FULL_PATH}/custom-rewards-eventsub.js`);
 
   function getTimestamp() {
     const pad = (n, s = 2) => (`${new Array(s).fill(0)}${n}`).slice(-s);
@@ -31,7 +31,8 @@ async function main() {
       lastUpdated: null,
       redemptionEnabled: false, // Disabled by default (requires broadcaster OAuth)
       redemptionRewardId: null,
-      redemptionTimeoutDuration: 60
+      redemptionTimeoutDuration: 60,
+      specialUsers: [] // Default to empty array
     };
 
     try {
@@ -95,7 +96,7 @@ async function main() {
   const apiClient = new ApiClient({ authProvider: botAuthProvider });
 
   // Create EventSub manager instance
-  const redemptionManager = new RedemptionEventSubManager();
+  const redemptionManager = new CustomRewardsEventSubManager();
 
   // Connect to chat
   console.log(`[${getTimestamp()}] info: Connecting to Twitch chat...`);
@@ -263,6 +264,11 @@ async function main() {
     const isMod = msg.userInfo.isMod;
     const isVip = msg.userInfo.isVip;
     const isOwner = user === process.env.TWITCH_OWNER.toLowerCase();
+
+    // Special user logic from channel config
+    const specialUsers = channelConfig.specialUsers || [];
+    const isSpecialUser = specialUsers.includes(user);
+
     const isModUp = isBroadcaster || isMod || isOwner;
     const isVIPUp = isVip || isModUp;
 
@@ -271,6 +277,7 @@ async function main() {
     if (isBroadcaster) permissions.push('broadcaster');
     if (isMod) permissions.push('moderator');
     if (isVip) permissions.push('vip');
+    if (isSpecialUser) permissions.push('special');
     if (permissions.length > 0) {
       console.log(`[${getTimestamp()}] info: User ${user} has permissions: ${permissions.join(', ')}`);
     }
@@ -310,8 +317,20 @@ async function main() {
           } else if (subCommand === 'disable') {
             const redemptionDisableResult = await configCommands.disableRedemption();
             await chatClient.say(channel, redemptionDisableResult.message);
+          } else if (subCommand === 'duration') {
+            const newDuration = parseInt(args[3]);
+            if (newDuration && newDuration > 0 && newDuration <= 1209600) { // Max 14 days
+              channelConfig.redemptionTimeoutDuration = newDuration;
+              if (saveChannelConfig(channelName, channelConfig)) {
+                await chatClient.say(channel, `Redemption timeout duration set to ${newDuration} seconds.`);
+              } else {
+                await chatClient.say(channel, "Failed to save timeout duration.");
+              }
+            } else {
+              await chatClient.say(channel, `Current timeout duration: ${channelConfig.redemptionTimeoutDuration} seconds. Usage: !config redemption duration <seconds>`);
+            }
           } else {
-            await chatClient.say(channel, "Usage: !config redemption enable/disable | Setup OAuth at https://mr-ai.dev/auth");
+            await chatClient.say(channel, "Usage: !config redemption enable/disable/duration <seconds> | Setup OAuth at https://mr-ai.dev/auth");
           }
           break;
 
@@ -332,8 +351,45 @@ async function main() {
           }
           break;
 
+        case 'special':
+          const specialAction = args[2]?.toLowerCase();
+          const targetUser = args[3]?.toLowerCase();
+
+          if (specialAction === 'add' && targetUser) {
+            if (!channelConfig.specialUsers.includes(targetUser)) {
+              channelConfig.specialUsers.push(targetUser);
+              if (saveChannelConfig(channelName, channelConfig)) {
+                await chatClient.say(channel, `Added ${targetUser} as a special user.`);
+              } else {
+                await chatClient.say(channel, "Failed to save special user.");
+              }
+            } else {
+              await chatClient.say(channel, `${targetUser} is already a special user.`);
+            }
+          } else if (specialAction === 'remove' && targetUser) {
+            const index = channelConfig.specialUsers.indexOf(targetUser);
+            if (index > -1) {
+              channelConfig.specialUsers.splice(index, 1);
+              if (saveChannelConfig(channelName, channelConfig)) {
+                await chatClient.say(channel, `Removed ${targetUser} from special users.`);
+              } else {
+                await chatClient.say(channel, "Failed to remove special user.");
+              }
+            } else {
+              await chatClient.say(channel, `${targetUser} is not a special user.`);
+            }
+          } else if (specialAction === 'list') {
+            const specialList = channelConfig.specialUsers.length > 0
+              ? channelConfig.specialUsers.join(', ')
+              : 'None';
+            await chatClient.say(channel, `Special users: ${specialList}`);
+          } else {
+            await chatClient.say(channel, "Usage: !config special add/remove/list [username]");
+          }
+          break;
+
         default:
-          await chatClient.say(channel, "Config commands: !config status | !config enable | !config disable | !config redemption enable/disable | !config redemption-status | !config modstatus");
+          await chatClient.say(channel, "Config commands: !config status | !config enable | !config disable | !config redemption enable/disable | !config redemption-status | !config modstatus | !config special add/remove/list [username]");
       }
       return;
     }
@@ -377,9 +433,10 @@ async function main() {
           badges: {
             broadcaster: isBroadcaster ? '1' : undefined,
             moderator: isMod ? '1' : undefined,
-            vip: isVip ? '1' : undefined
+            vip: isVip ? '1' : undefined,
+            subscriber: msg.userInfo.isSubscriber ? '1' : undefined,    // Map from Twurple
+            founder: msg.userInfo.isFounder ? '1' : undefined           // Map from Twurple
           },
-          // Add these permission flags
           isModUp: isModUp,
           isVIPUp: isVIPUp,
           isSpecialUser: isSpecialUser,
@@ -434,6 +491,61 @@ async function main() {
   chatClient.onPart((channel, user) => {
     console.log(`[${getTimestamp()}] info: User ${user} left #${channel}`);
   });
+
+  // Log timeouts performed by other moderators
+  chatClient.onTimeout((channel, user, duration, reason) => {
+    console.log(`[${getTimestamp()}] EXTERNAL_MOD: TIMEOUT - User: ${user} | Channel: ${channel} | Duration: ${duration}s | Reason: ${reason || 'No reason provided'}`);
+  });
+
+  // Log bans performed by other moderators
+  chatClient.onBan((channel, user, reason) => {
+    console.log(`[${getTimestamp()}] EXTERNAL_MOD: BAN - User: ${user} | Channel: ${channel} | Reason: ${reason || 'No reason provided'}`);
+  });
+
+  // Log message deletions by moderators
+  chatClient.onMessageRemove((channel, messageId, msg) => {
+    const username = msg?.userInfo?.displayName || 'Unknown';
+    const messageText = msg?.text || 'Unknown message';
+    console.log(`[${getTimestamp()}] EXTERNAL_MOD: MESSAGE_DELETED - Channel: ${channel} | User: ${username} | Message: "${messageText}" | Message ID: ${messageId}`);
+  });
+
+  // Log when chat is cleared
+  chatClient.onChatClear((channel) => {
+    console.log(`[${getTimestamp()}] EXTERNAL_MOD: CHAT_CLEARED - Channel: ${channel}`);
+  });
+
+  // Log emote-only mode changes
+  chatClient.onEmoteOnly((channel, enabled) => {
+    console.log(`[${getTimestamp()}] EXTERNAL_MOD: EMOTE_ONLY_MODE - Channel: ${channel} | Status: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  });
+
+  // Log followers-only mode changes
+  chatClient.onFollowersOnly((channel, enabled, delay) => {
+    if (enabled) {
+      console.log(`[${getTimestamp()}] EXTERNAL_MOD: FOLLOWERS_ONLY_MODE - Channel: ${channel} | Status: ENABLED | Minimum follow time: ${delay || 0} minutes`);
+    } else {
+      console.log(`[${getTimestamp()}] EXTERNAL_MOD: FOLLOWERS_ONLY_MODE - Channel: ${channel} | Status: DISABLED`);
+    }
+  });
+
+  // Log slow mode changes
+  chatClient.onSlow((channel, enabled, delay) => {
+    if (enabled) {
+      console.log(`[${getTimestamp()}] EXTERNAL_MOD: SLOW_MODE - Channel: ${channel} | Status: ENABLED | Delay: ${delay} seconds between messages`);
+    } else {
+      console.log(`[${getTimestamp()}] EXTERNAL_MOD: SLOW_MODE - Channel: ${channel} | Status: DISABLED`);
+    }
+  });
+
+  // Log subscribers-only mode changes
+  chatClient.onSubsOnly((channel, enabled) => {
+    console.log(`[${getTimestamp()}] EXTERNAL_MOD: SUBSCRIBERS_ONLY_MODE - Channel: ${channel} | Status: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  });
+
+  // Note: onUnique, onHost, and onUnhost may not be available in all @twurple/chat versions
+  // Removed these event handlers to prevent errors
+
+  console.log(`[${getTimestamp()}] info: External moderation logging enabled - All external mod actions will be logged to console`);
 
   // Handle disconnection gracefully
   process.on('SIGINT', async () => {

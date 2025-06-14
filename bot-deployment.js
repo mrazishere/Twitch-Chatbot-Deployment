@@ -57,14 +57,17 @@ async function main() {
   function createDefaultChannelConfig(channelName) {
     return {
       channelName: channelName,
-      chatOnly: false, // NEW: Default to full features since OAuth handles permissions
-      moderationEnabled: true, // NEW: Default enabled, requires OAuth for activation
+      chatOnly: false,
+      moderationEnabled: true,
       clientId: process.env.TWITCH_CLIENTID,
       moderatorUsername: channelName,
       lastUpdated: new Date().toISOString(),
       redemptionEnabled: true,
       redemptionRewardId: "",
-      redemptionTimeoutDuration: 60
+      redemptionTimeoutDuration: 60,
+      testMode: false,
+      specialUsers: [],
+      timeoutUsers: []
     };
   }
 
@@ -150,6 +153,12 @@ async function main() {
       script: '${process.env.BOT_FULL_PATH}/channels/${addUser}.js',
       log_date_format: 'YYYY-MM-DD',
       max_memory_restart: '100M',
+      watch: ['${process.env.BOT_FULL_PATH}/channel-configs/${addUser}.json'],
+      watch_delay: 2000,
+      ignore_watch: ['node_modules', 'logs', '*.log'],
+      watch_options: {
+        followSymlinks: false
+      }
     }
   ]`;
                 });
@@ -387,7 +396,7 @@ module.exports = {
       }
     }
 
-    // Updated redeploy function
+    // Updated redeploy function with watch functionality
     async function redeploy() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -396,6 +405,7 @@ module.exports = {
 
       const files = fs.readdirSync(`${process.env.BOT_FULL_PATH}/channels`);
       let redeployCount = 0;
+      let appsConfig = [];
 
       files.forEach((file) => {
         if (file != "ecosystem.config.js" &&
@@ -408,22 +418,52 @@ module.exports = {
           const channelname = file.replace(".js", "");
           const result = data.replace(/\$\$UPDATEHERE\$\$/g, channelname);
 
+          // Update bot file
           fs.writeFileSync(`${process.env.BOT_FULL_PATH}/channels/${file}`, result, "utf8");
-          exec(`pm2 restart "${channelname}"`, (error, stdout, stderr) => {
-            if (error) {
-              console.log(`error: ${error.message}`);
-              return;
-            }
-            if (stderr) {
-              console.log(`stderr: ${stderr}`);
-              return;
-            }
-            console.log(`stdout: ${stdout}`);
-          });
+
+          // Prepare ecosystem config entry with watch enabled
+          const configPath = `${process.env.BOT_FULL_PATH}/channel-configs/${channelname}.json`;
+          appsConfig.push(`    {
+      name: '${channelname}',
+      script: '${process.env.BOT_FULL_PATH}/channels/${channelname}.js',
+      log_date_format: 'YYYY-MM-DD',
+      max_memory_restart: '100M',
+      watch: ['${configPath}'],
+      watch_delay: 2000,
+      ignore_watch: ['node_modules', 'logs', '*.log'],
+      watch_options: {
+        followSymlinks: false
+      }
+    }`);
+
           redeployCount++;
         }
       });
-      client.say(channel, `Redeployed & restarted ${redeployCount} Mr-AI-is-Here bots with new template! OAuth tokens at https://mr-ai.dev/auth`);
+
+      // Generate new ecosystem.config.js with watch enabled for all bots
+      const newEcosystemConfig = `module.exports = {
+  apps: [
+${appsConfig.join(',\n')}
+  ]
+}`;
+
+      // Write the updated ecosystem config
+      fs.writeFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, newEcosystemConfig);
+
+      // Reload PM2 configuration to apply watch settings
+      exec(`cd ${process.env.BOT_FULL_PATH}/channels && pm2 reload ecosystem.config.js`, (error, stdout, stderr) => {
+        if (error) {
+          console.log(`error: ${error.message}`);
+          client.say(channel, `Redeployed ${redeployCount} bots but failed to enable file watching: ${error.message}`);
+          return;
+        }
+        if (stderr) {
+          console.log(`stderr: ${stderr}`);
+        }
+        console.log(`stdout: ${stdout}`);
+
+        client.say(channel, `✅ Redeployed & restarted ${redeployCount} Mr-AI-is-Here bots with new template! File watching enabled for OAuth auto-restart. OAuth tokens at https://mr-ai.dev/auth`);
+      });
     }
 
     // Batch migration function

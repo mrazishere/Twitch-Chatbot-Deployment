@@ -265,10 +265,13 @@ exports.claude = async function claude(client, message, channel, tags, context) 
         // Handle Claude prompts (all viewers can use)
         if (command === "!claude") {
             // Check if user is a subscriber, founder, broadcaster, or owner
-            const isSubscriber = badges.subscriber || badges.founder;
+            const isSubscriber = badges.subscriber || badges.founder ||
+                tags.isSubscriber || tags.isFounder ||
+                tags['subscriber'] || tags['founder'];
             // Allow access only to subscribers, broadcasters, or the owner
             if (!isSubscriber && !isBroadcasterOrOwner) {
                 // Silent fail for non-subscribers
+                console.log(`[DEBUG] User ${tags.username} failed subscriber check - badges:`, badges, 'available tags:', Object.keys(tags));
                 return;
             }
 

@@ -295,8 +295,8 @@ function moderation(client, message, channel, tags) {
 
     // Check if user has moderation permissions
     const badges = tags.badges || {};
-    const isBroadcaster = badges.broadcaster;
-    const isMod = badges.moderator;
+    const isBroadcaster = badges.broadcaster || tags.isBroadcaster;
+    const isMod = badges.moderator || tags.isMod;
     const isOwner = tags.username === process.env.TWITCH_OWNER;
     const isModUp = isBroadcaster || isMod || isOwner;
 

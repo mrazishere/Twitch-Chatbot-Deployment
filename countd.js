@@ -32,7 +32,7 @@ app.get('/countd/data', (req, res) => {
             return res.status(500).send('Error parsing JSON file');
         }
 
-        const timers = Object.values(countdData).filter(item => item.channel === `#${channel}`);
+        const timers = Object.values(countdData).filter(item => item.channel === `${channel}`);
 
         res.json(timers);
     });
