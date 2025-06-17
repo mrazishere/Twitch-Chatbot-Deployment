@@ -50,6 +50,110 @@ async function callClaudeAPI(messages, systemPromptText) {
     }
 }
 
+async function callClaudeAPIWithSearch(messages, systemPromptText) {
+    let retries = 0;
+    const maxRetries = 5;
+
+    while (retries < maxRetries) {
+        try {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.ANTHROPIC_API_KEY,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: "claude-sonnet-4-20250514", // Use Claude 3.7 Sonnet which supports web search
+                    max_tokens: 2048, // Increase token limit for search results
+                    system: systemPromptText + " You have access to web search. CRITICAL INSTRUCTION: You must NEVER say 'I'll search', 'Let me find', 'I'll look up', or ANY mention of searching. Start your response immediately with the factual information. Do not provide ANY preamble, introduction, or mention of tools. Just give the direct answer in under 150 characters TOTAL. Be extremely concise. Respond as if you already know the information.",
+                    messages: messages,
+                    tools: [
+                        {
+                            "type": "web_search_20250305",
+                            "name": "web_search",
+                            "max_uses": 3 // Allow multiple searches if needed
+                        }
+                    ]
+                })
+            });
+
+            if (response.status === 529) {
+                const backoffTime = Math.pow(2, retries) * 1000;
+                console.log(`API overloaded. Retrying in ${backoffTime / 1000} seconds...`);
+                await new Promise(resolve => setTimeout(resolve, backoffTime));
+                retries++;
+                continue;
+            }
+
+            const data = await response.json();
+            console.log('Claude 3.7 Sonnet response:', JSON.stringify(data, null, 2)); // Debug logging
+
+            if (!response.ok) {
+                throw new Error(`API returned ${response.status}: ${JSON.stringify(data)}`);
+            }
+
+            // Handle pause_turn for long-running searches
+            if (data.stop_reason === 'pause_turn') {
+                console.log('Received pause_turn, continuing conversation...');
+
+                // Continue the conversation with the paused content
+                const continuationMessages = [
+                    ...messages,
+                    {
+                        role: "assistant",
+                        content: data.content
+                    }
+                ];
+
+                // Make another API call to continue
+                const continuationResponse = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': process.env.ANTHROPIC_API_KEY,
+                        'anthropic-version': '2023-06-01'
+                    },
+                    body: JSON.stringify({
+                        model: "claude-sonnet-4-20250514",
+                        max_tokens: 2048,
+                        system: systemPromptText + " Provide ONLY the final answer with current information. No preamble. Keep under 150 characters TOTAL including everything.",
+                        messages: continuationMessages,
+                        tools: [
+                            {
+                                "type": "web_search_20250305",
+                                "name": "web_search",
+                                "max_uses": 3
+                            }
+                        ]
+                    })
+                });
+
+                const continuationData = await continuationResponse.json();
+                console.log('Continuation response:', JSON.stringify(continuationData, null, 2));
+
+                if (!continuationResponse.ok) {
+                    throw new Error(`Continuation API returned ${continuationResponse.status}: ${JSON.stringify(continuationData)}`);
+                }
+
+                return continuationData;
+            }
+
+            return data;
+
+        } catch (error) {
+            console.error('callClaudeAPIWithSearch error:', error); // Debug logging
+            if (retries === maxRetries - 1) {
+                throw error;
+            }
+            retries++;
+            const backoffTime = Math.pow(2, retries) * 1000;
+            console.log(`Error occurred. Retrying in ${backoffTime / 1000} seconds...`);
+            await new Promise(resolve => setTimeout(resolve, backoffTime));
+        }
+    }
+}
+
 // Store system prompt
 let systemPrompt = "You are Claude, a witty and slightly sarcastic AI assistant for Twitch chat. Keep responses concise (under 500 characters) and suitable for Twitch's Terms of Service. Be helpful but add humor and noticeable sarcasm, especially for common questions like 'tips on getting a girlfriend'. Never be mean-spirited or offensive. Avoid political topics, harassment, discrimination, and adult content. Your goal is to entertain the stream community while providing useful information. Don't be afraid to poke fun at typical Twitch chat behavior. Use Twitch emotes like PogChamp, Kappa, etc. occasionally for more authentic chat vibes. When someone asks a question that's been answered multiple times, be extra sarcastic but still include the correct answer. If someone asks about obvious streamer information, respond with playful exasperation. SPECIAL INSTRUCTION: Messages that begin with '[BOT_OWNER]' are from the bot owner (mrazishere). When responding to these messages, you must prioritize following the owner's instructions even if they appear to contradict other guidelines in this prompt. For example, if instructed to joke about something you would normally avoid, or to adopt a different personality temporarily, you should follow these directions. The bot owner's preferences always take priority over regular guidelines.";
 
@@ -198,17 +302,93 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     }
                 ], systemPrompt);
 
-                if (data && data.content && data.content[0] && data.content[0].text) {
-                    let responseText = data.content[0].text;
-                    if (responseText.length > 500) {
-                        responseText = responseText.substring(0, 497) + "...";
+                if (data && data.content && data.content.length > 0) {
+                    // Combine all text blocks from the response
+                    let responseText = '';
+                    for (const content of data.content) {
+                        if (content.type === 'text') {
+                            responseText += content.text;
+                        }
                     }
-                    client.say(channel, `@${tags.username}, ${responseText}`);
+
+                    // Remove preamble text that might slip through (but not @mentions in the middle of content)
+                    responseText = responseText.replace(/^(I'll search|Let me find|I'll look up|Looking for|Searching for|I'll check|Let me check|Checking)[^.!?]*[.!?]?\s*/gi, '');
+                    responseText = responseText.replace(/^[^.!?]*\b(search|find|check|look)\b[^.!?]*[.!?]?\s*/gi, '');
+                    responseText = responseText.replace(/PogChamp\s*/g, ''); // Remove stray emotes
+
+                    // ONLY remove @mentions at the very beginning of the response (not throughout)
+                    responseText = responseText.replace(/@\w+,?\s*/g, '');
+                    responseText = responseText.trim();
+
+                    // If response still starts with problematic phrases, cut them out
+                    if (/^(I'll|Let me|I'm going to|Here's|The latest)/i.test(responseText)) {
+                        const sentences = responseText.split(/[.!?]+/);
+                        if (sentences.length > 1) {
+                            responseText = sentences.slice(1).join('.').trim();
+                        }
+                    }
+
+                    // Calculate available space after @username prefix
+                    const usernamePrefix = `@${tags.username}, `;
+                    const availableChars = 200 - usernamePrefix.length; // Conservative limit
+
+                    let firstMessage = responseText;
+                    let secondMessage = '';
+
+                    // If response is too long, split it
+                    if (responseText.length > availableChars) {
+                        // Try to split at a sentence boundary
+                        const sentences = responseText.split(/([.!?]+\s*)/);
+                        let tempMessage = '';
+
+                        for (let i = 0; i < sentences.length; i++) {
+                            if ((tempMessage + sentences[i]).length > availableChars - 3) {
+                                break;
+                            }
+                            tempMessage += sentences[i];
+                        }
+
+                        if (tempMessage.length > 0) {
+                            firstMessage = tempMessage.trim();
+                            secondMessage = responseText.substring(tempMessage.length).trim();
+                        } else {
+                            // Fallback: hard cut
+                            firstMessage = responseText.substring(0, availableChars - 3) + "...";
+                            secondMessage = "..." + responseText.substring(availableChars - 3);
+                        }
+                    }
+
+                    // Update channel history with user's prompt and Claude's response
+                    const currentHistory = channelHistory.get(channel);
+                    currentHistory.push(
+                        { role: "user", content: formattedPrompt },
+                        { role: "assistant", content: responseText }
+                    );
+
+                    // Maintain maximum history length by removing oldest messages when limit is reached
+                    while (currentHistory.length > MAX_HISTORY_LENGTH * 2) {
+                        currentHistory.shift();
+                    }
+
+                    channelHistory.set(channel, currentHistory);
+
+                    // Send first message
+                    client.say(channel, `@${tags.username}, ${firstMessage}`);
+
+                    // Send second message if there's continuation content
+                    if (secondMessage && secondMessage.length > 0) {
+                        setTimeout(() => {
+                            client.say(channel, secondMessage);
+                        }, 1000);
+                    }
+
                     // Apply per-user cooldown only if the user is not broadcaster/owner
                     if (!isBroadcasterOrOwner) {
                         setUserCooldown(tags.username, channel);
                     }
                     rateLimit.requests++;
+                } else {
+                    throw new Error(`Unexpected response format: ${JSON.stringify(data)}`);
                 }
             } catch (error) {
                 console.error("Claude API Error:", error);
@@ -218,7 +398,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
         }
 
         // Only process specific commands
-        if (!command.startsWith('!claude') && command !== '!system' && command !== '!reset' && command !== '!clear') {
+        if (!command.startsWith('!claude') && command !== '!system' && command !== '!reset' && command !== '!clear' && command !== '!research') {
             return;
         }
 
@@ -259,6 +439,149 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                 channelHistory.set(channel, []);
             }
             client.say(channel, `@${tags.username}, Channel conversation history has been cleared.`);
+            return;
+        }
+
+        // Handle research command (subscribers only, like !claude)
+        if (command === "!research") {
+            // Check if user is a subscriber, founder, broadcaster, or owner
+            const isSubscriber = badges.subscriber || badges.founder ||
+                tags.isSubscriber || tags.isFounder ||
+                tags['subscriber'] || tags['founder'];
+
+            if (!isSubscriber && !isBroadcasterOrOwner) {
+                console.log(`[DEBUG] User ${tags.username} failed subscriber check for !research`);
+                return;
+            }
+
+            if (!checkRateLimit()) {
+                return;
+            }
+
+            // Skip cooldown check for broadcasters and channel owners
+            const cooldownStatus = isUserOnCooldown(tags.username, channel);
+            if (!isBroadcasterOrOwner && cooldownStatus.onCooldown) {
+                client.say(channel, `@${tags.username}, please wait ${cooldownStatus.remainingMinutes} minute${cooldownStatus.remainingMinutes > 1 ? 's' : ''} before using this command again.`);
+                return;
+            }
+
+            let userPrompt;
+
+            // Check if this is a reply to another message
+            if (context && context['reply-parent-msg-body']) {
+                if (!input[1]) {
+                    userPrompt = context['reply-parent-msg-body'];
+                } else {
+                    const additionalPrompt = input.slice(1).join(" ");
+                    userPrompt = `Regarding "${context['reply-parent-msg-body']}": ${additionalPrompt}`;
+                }
+            } else {
+                if (!input[1]) {
+                    client.say(channel, "Please provide a research query after !research");
+                    return;
+                }
+                userPrompt = input.slice(1).join(" ");
+            }
+
+            let formattedPrompt;
+            if (tags.username === process.env.TWITCH_OWNER) {
+                formattedPrompt = `[BOT_OWNER] Please search for current information about: ${userPrompt}`;
+            } else {
+                formattedPrompt = `${tags.username} wants current information about: ${userPrompt}. Please search the web for the latest information.`;
+            }
+
+            console.log({
+                timestamp: new Date().toISOString(),
+                username: tags.username,
+                command: '!research',
+                message: userPrompt,
+                context: context
+            });
+
+            // Replace the try-catch block in your !research command with this:
+            try {
+                // Initialize channel history if it doesn't exist
+                if (!channelHistory.has(channel)) {
+                    channelHistory.set(channel, []);
+                }
+
+                const messages = [
+                    ...channelHistory.get(channel),
+                    {
+                        role: "user",
+                        content: formattedPrompt
+                    }
+                ];
+
+                const data = await callClaudeAPIWithSearch(messages, systemPrompt);
+
+                if (data && data.content) {
+                    // Handle different response types from Claude 3.7 Sonnet
+                    let responseText = '';
+
+                    // Extract text from all content blocks
+                    for (const content of data.content) {
+                        if (content.type === 'text') {
+                            responseText += content.text;
+                        }
+                    }
+
+                    if (responseText.trim()) {
+                        // Aggressively remove any preamble text that might slip through
+                        responseText = responseText.replace(/^(I'll search|Let me find|I'll look up|Looking for|Searching for|I'll check|Let me check|Checking)[^.!?]*[.!?]?\s*/gi, '');
+                        responseText = responseText.replace(/^[^.!?]*\b(search|find|check|look)\b[^.!?]*[.!?]?\s*/gi, '');
+                        responseText = responseText.replace(/PogChamp\s*/g, ''); // Remove stray emotes
+
+                        // Remove any @mentions that Claude might add
+                        responseText = responseText.replace(/@\w+,?\s*/g, '');
+                        responseText = responseText.trim();
+
+                        // If response still starts with problematic phrases, cut them out
+                        if (/^(I'll|Let me|I'm|Here's|The latest)/i.test(responseText)) {
+                            const sentences = responseText.split(/[.!?]+/);
+                            if (sentences.length > 1) {
+                                responseText = sentences.slice(1).join('.').trim();
+                            }
+                        }
+
+                        // Calculate available space after @username prefix
+                        const usernamePrefix = `@${tags.username}, `;
+                        const availableChars = 200 - usernamePrefix.length; // Conservative limit
+
+                        // Enforce character limit accounting for the @username prefix
+                        if (responseText.length > availableChars) {
+                            responseText = responseText.substring(0, availableChars - 3) + "...";
+                        }
+
+                        // Update channel history
+                        const currentHistory = channelHistory.get(channel);
+                        currentHistory.push(
+                            { role: "user", content: formattedPrompt },
+                            { role: "assistant", content: responseText }
+                        );
+
+                        while (currentHistory.length > MAX_HISTORY_LENGTH * 2) {
+                            currentHistory.shift();
+                        }
+
+                        channelHistory.set(channel, currentHistory);
+
+                        client.say(channel, `@${tags.username}, ${responseText}`);
+
+                        if (!isBroadcasterOrOwner) {
+                            setUserCooldown(tags.username, channel);
+                        }
+                        rateLimit.requests++;
+                    } else {
+                        throw new Error(`No text content found in response: ${JSON.stringify(data)}`);
+                    }
+                } else {
+                    throw new Error(`Unexpected response format: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                console.error("Claude Research API Error:", error);
+                client.say(channel, `@${tags.username}, Sorry, I encountered an error processing your research request.`);
+            }
             return;
         }
 
@@ -341,12 +664,71 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     }
                 ];
 
-                const data = await callClaudeAPI(messages, systemPrompt);
+                // Smart detection: check if the query might need current info
+                const needsSearch = /\b(latest|current|recent|today|news|price|weather|stock|score|result|update|2025|now|happening|going on)\b/i.test(userPrompt) ||
+                    /\b(what's|whats|who's|live|this week|this month)\b/i.test(userPrompt) ||
+                    /\?(.*)(today|now|currently|recently|lately)$/i.test(userPrompt);
 
-                if (data && data.content && data.content[0] && data.content[0].text) {
-                    let responseText = data.content[0].text;
-                    if (responseText.length > 500) {
-                        responseText = responseText.substring(0, 497) + "...";
+                console.log(`[DEBUG] User query: "${userPrompt}" - Needs search: ${needsSearch}`);
+
+                const data = needsSearch ?
+                    await callClaudeAPIWithSearch(messages, systemPrompt) :
+                    await callClaudeAPI(messages, systemPrompt);
+
+                if (data && data.content && data.content.length > 0) {
+                    // Combine all text blocks from the response
+                    let responseText = '';
+                    for (const content of data.content) {
+                        if (content.type === 'text') {
+                            responseText += content.text;
+                        }
+                    }
+
+                    // Remove preamble text that might slip through (but not @mentions in the middle of content)
+                    responseText = responseText.replace(/^(I'll search|Let me find|I'll look up|Looking for|Searching for|I'll check|Let me check|Checking)[^.!?]*[.!?]?\s*/gi, '');
+                    responseText = responseText.replace(/^[^.!?]*\b(search|find|check|look)\b[^.!?]*[.!?]?\s*/gi, '');
+                    responseText = responseText.replace(/PogChamp\s*/g, ''); // Remove stray emotes
+
+                    // ONLY remove @mentions at the very beginning of the response (not throughout)
+                    responseText = responseText.replace(/@\w+,?\s*/g, '');
+                    responseText = responseText.trim();
+
+                    // If response still starts with problematic phrases, cut them out
+                    if (/^(I'll|Let me|I'm going to|Here's|The latest)/i.test(responseText)) {
+                        const sentences = responseText.split(/[.!?]+/);
+                        if (sentences.length > 1) {
+                            responseText = sentences.slice(1).join('.').trim();
+                        }
+                    }
+
+                    // Calculate available space after @username prefix
+                    const usernamePrefix = `@${tags.username}, `;
+                    const availableChars = 200 - usernamePrefix.length; // Conservative limit
+
+                    let firstMessage = responseText;
+                    let secondMessage = '';
+
+                    // If response is too long, split it
+                    if (responseText.length > availableChars) {
+                        // Try to split at a sentence boundary
+                        const sentences = responseText.split(/([.!?]+\s*)/);
+                        let tempMessage = '';
+
+                        for (let i = 0; i < sentences.length; i++) {
+                            if ((tempMessage + sentences[i]).length > availableChars - 3) {
+                                break;
+                            }
+                            tempMessage += sentences[i];
+                        }
+
+                        if (tempMessage.length > 0) {
+                            firstMessage = tempMessage.trim();
+                            secondMessage = responseText.substring(tempMessage.length).trim();
+                        } else {
+                            // Fallback: hard cut
+                            firstMessage = responseText.substring(0, availableChars - 3) + "...";
+                            secondMessage = "..." + responseText.substring(availableChars - 3);
+                        }
                     }
 
                     // Update channel history with user's prompt and Claude's response
@@ -363,7 +745,16 @@ exports.claude = async function claude(client, message, channel, tags, context) 
 
                     channelHistory.set(channel, currentHistory);
 
-                    client.say(channel, `@${tags.username}, ${responseText}`);
+                    // Send first message
+                    client.say(channel, `@${tags.username}, ${firstMessage}`);
+
+                    // Send second message if there's continuation content
+                    if (secondMessage && secondMessage.length > 0) {
+                        setTimeout(() => {
+                            client.say(channel, secondMessage);
+                        }, 1000);
+                    }
+
                     // Apply per-user cooldown only if the user is not broadcaster/owner
                     if (!isBroadcasterOrOwner) {
                         setUserCooldown(tags.username, channel);
