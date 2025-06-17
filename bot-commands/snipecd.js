@@ -5,7 +5,7 @@
  *              Some use purposes include: Snipe games.
  *              In order for the countdown to work, the bot needs to be at least a VIP or above due to Twitch's chat cooldown.
  * 
- * Permission required: Moderators and above
+ * Permission required: Special Users, Moderators and above
  * 
  * Usage:
  *   !snipecd - Start countdown in 10 seconds
@@ -23,13 +23,16 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
     const isBroadcaster = badges.broadcaster || tags.isBroadcaster;
     const isMod = badges.moderator || tags.isMod;
     const isVIP = badges.vip || tags.isVip;
+    const isSpecialUser = tags.isSpecialUser || false; // Added special user check
     const isModUp = tags.isModUp || isBroadcaster || isMod || tags.username === process.env.TWITCH_OWNER;
     const isVIPUp = tags.isVIPUp || isVIP || isModUp;
+    const isSpecialUp = isSpecialUser || isVIPUp; // New permission level including special users
     const channel1 = channel.substring(1);
     let input = message.trimEnd().split(" ");
 
     if (input[0] === "!snipecd") {
-        if (isModUp) {
+        // Changed permission check to include special users
+        if (isSpecialUp) {
             if (countdownInterval) {
                 client.say(channel, `@${tags.username}, there's already an ongoing countdown. Use !cancelcd to cancel it.`);
                 return;
@@ -67,11 +70,13 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
             }, 1000);
             return;
         } else {
-            client.say(channel, `@${tags.username}, !snipecd is for Moderators & above.`);
+            // Updated error message to reflect new permission requirements
+            client.say(channel, `@${tags.username}, !snipecd is for Special Users & above.`);
             return;
         }
     } else if (input[0] === "!cancelcd") {
-        if (isModUp) {
+        // Changed permission check to include special users
+        if (isSpecialUp) {
             if (countdownInterval) {
                 clearInterval(countdownInterval);
                 countdownInterval = null;
@@ -80,7 +85,8 @@ exports.snipecd = async function snipecd(client, message, channel, tags) {
                 client.say(channel, `@${tags.username}, there's no ongoing countdown to cancel.`);
             }
         } else {
-            client.say(channel, `@${tags.username}, !cancelcd is for Moderators & above.`);
+            // Updated error message to reflect new permission requirements
+            client.say(channel, `@${tags.username}, !cancelcd is for Special Users & above.`);
         }
         return;
     }
