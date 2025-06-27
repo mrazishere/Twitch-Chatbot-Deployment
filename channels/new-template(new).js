@@ -32,7 +32,8 @@ async function main() {
       redemptionEnabled: false, // Disabled by default (requires broadcaster OAuth)
       redemptionRewardId: null,
       redemptionTimeoutDuration: 60,
-      specialUsers: [] // Default to empty array
+      specialUsers: [], // Default to empty array
+      excludedCommands: [] // NEW: Commands to exclude/disable for this channel
     };
 
     try {
@@ -212,7 +213,8 @@ async function main() {
         redemptionEnabled: channelConfig.redemptionEnabled,
         redemptionRewardId: channelConfig.redemptionRewardId,
         redemptionTimeoutDuration: channelConfig.redemptionTimeoutDuration,
-        eventSubActive: eventSubStatus.activeChannels.includes(channelName)
+        eventSubActive: eventSubStatus.activeChannels.includes(channelName),
+        excludedCommands: channelConfig.excludedCommands || []
       };
     }
   };
@@ -229,14 +231,18 @@ async function main() {
   // Handle raid events
   chatClient.onRaid(async (channel, user, raidInfo) => {
     const viewers = raidInfo.viewerCount;
-    const username = user.name;
+    // Fix: Use the correct property for username
+    const username = user.displayName || user.name || user;
 
     console.log(`[${getTimestamp()}] info: RAID event: ${username} raided with ${viewers} viewers`);
+    console.log(`[${getTimestamp()}] debug: User object:`, user); // Debug log to see user structure
 
     if (viewers >= 2) {
       try {
-        const gameInfo = await getGame(username);
-        const raidMessage = `Thank you @${username} for the raid of ${viewers}! They were last seen streaming [${gameInfo}]. Check them out @ https://www.twitch.tv/${username}`;
+        // Use displayName for the API call if available, otherwise fallback to name
+        const loginName = user.name || user.displayName || user;
+        const gameInfo = await getGame(loginName.toLowerCase()); // Ensure lowercase for API call
+        const raidMessage = `Thank you @${username} for the raid of ${viewers}! They were last seen streaming [${gameInfo}]. Check them out @ https://www.twitch.tv/${loginName.toLowerCase()}`;
 
         await chatClient.say(channel, raidMessage);
         console.log(`[${getTimestamp()}] info: RAID response sent to #${channel}`);
@@ -282,7 +288,7 @@ async function main() {
       console.log(`[${getTimestamp()}] info: User ${user} has permissions: ${permissions.join(', ')}`);
     }
 
-    // Configuration commands (broadcaster/owner only) - UPDATED
+    // Configuration commands (broadcaster/owner only) - UPDATED WITH EXCLUDE COMMANDS
     if ((isBroadcaster || isOwner) && text.startsWith('!config')) {
       const args = text.split(' ');
       const command = args[1]?.toLowerCase();
@@ -295,7 +301,8 @@ async function main() {
             `Mode: ${status.chatOnly ? 'Chat Only' : 'Full Features'} | ` +
             `Bot OAuth: ${status.botOAuth ? 'Active' : 'Missing'} | ` +
             `Redemptions: ${status.redemptionEnabled ? 'Enabled' : 'Disabled'} | ` +
-            `EventSub: ${status.eventSubActive ? 'Active' : 'Inactive'}`
+            `EventSub: ${status.eventSubActive ? 'Active' : 'Inactive'} | ` +
+            `Excluded Commands: ${status.excludedCommands.length}`
           );
           break;
 
@@ -388,8 +395,46 @@ async function main() {
           }
           break;
 
+        // NEW: Exclude commands management
+        case 'exclude':
+          const excludeAction = args[2]?.toLowerCase();
+          const commandName = args[3]?.toLowerCase();
+
+          if (excludeAction === 'add' && commandName) {
+            if (!channelConfig.excludedCommands.includes(commandName)) {
+              channelConfig.excludedCommands.push(commandName);
+              if (saveChannelConfig(channelName, channelConfig)) {
+                await chatClient.say(channel, `Command "${commandName}" has been disabled for this channel.`);
+              } else {
+                await chatClient.say(channel, "Failed to save excluded command.");
+              }
+            } else {
+              await chatClient.say(channel, `Command "${commandName}" is already disabled.`);
+            }
+          } else if (excludeAction === 'remove' && commandName) {
+            const index = channelConfig.excludedCommands.indexOf(commandName);
+            if (index > -1) {
+              channelConfig.excludedCommands.splice(index, 1);
+              if (saveChannelConfig(channelName, channelConfig)) {
+                await chatClient.say(channel, `Command "${commandName}" has been re-enabled for this channel.`);
+              } else {
+                await chatClient.say(channel, "Failed to remove excluded command.");
+              }
+            } else {
+              await chatClient.say(channel, `Command "${commandName}" is not currently disabled.`);
+            }
+          } else if (excludeAction === 'list') {
+            const excludedList = channelConfig.excludedCommands.length > 0
+              ? channelConfig.excludedCommands.join(', ')
+              : 'None';
+            await chatClient.say(channel, `Disabled commands: ${excludedList}`);
+          } else {
+            await chatClient.say(channel, "Usage: !config exclude add/remove/list [commandname]");
+          }
+          break;
+
         default:
-          await chatClient.say(channel, "Config commands: !config status | !config enable | !config disable | !config redemption enable/disable | !config redemption-status | !config modstatus | !config special add/remove/list [username]");
+          await chatClient.say(channel, "Config commands: !config status | !config enable | !config disable | !config redemption enable/disable | !config redemption-status | !config modstatus | !config special add/remove/list [username] | !config exclude add/remove/list [commandname]");
       }
       return;
     }
@@ -408,54 +453,82 @@ async function main() {
       return;
     }
 
-    // Bot Commands (existing command system)
+    // FIXED: Bot Commands (command system with proper excluded command logging)
     try {
-      const commands = {};
-      const glob = require("glob");
-      const excludedCommands = [''];
+      // First, check if the message is even a command before processing
+      const messageWords = text.split(' ');
+      const potentialCommand = messageWords[0].toLowerCase();
+      let isCommand = false;
+      let requestedCommandName = '';
 
-      glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`).forEach(file => {
-        const commandExports = require(file);
-        const functionName = file.split('/').pop().replace('.js', '');
+      // Check if message starts with a command trigger
+      if (potentialCommand.startsWith('!')) {
+        requestedCommandName = potentialCommand.substring(1); // Remove the !
+        isCommand = true;
+      }
 
-        if (excludedCommands.includes(functionName)) return;
+      // Only process commands if this is actually a command message
+      if (isCommand) {
+        const commands = {};
+        const glob = require("glob");
+        // Get excluded commands from channel config
+        const excludedCommands = channelConfig.excludedCommands || [];
 
-        if (typeof commandExports[functionName] === 'function') {
-          commands[functionName] = commandExports[functionName];
+        // Check if the requested command is excluded FIRST
+        if (excludedCommands.includes(requestedCommandName)) {
+          console.log(`[${getTimestamp()}] info: Command "${requestedCommandName}" is excluded for channel ${channelName} - blocking execution`);
+          return; // Stop processing this command entirely
         }
-      });
 
-      Object.keys(commands).forEach(commandName => {
-        const commandFunction = commands[commandName];
-        const tmiCompatibleTags = {
-          username: user,
-          'display-name': msg.userInfo.displayName,
-          badges: {
-            broadcaster: isBroadcaster ? '1' : undefined,
-            moderator: isMod ? '1' : undefined,
-            vip: isVip ? '1' : undefined,
-            subscriber: msg.userInfo.isSubscriber ? '1' : undefined,    // Map from Twurple
-            founder: msg.userInfo.isFounder ? '1' : undefined           // Map from Twurple
-          },
-          isModUp: isModUp,
-          isVIPUp: isVIPUp,
-          isSpecialUser: isSpecialUser,
-          ...msg.userInfo
-        };
+        // Load all available commands (excluding the excluded ones)
+        glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`).forEach(file => {
+          const commandExports = require(file);
+          const functionName = file.split('/').pop().replace('.js', '');
 
-        const clientWrapper = {
-          say: (channel, message) => {
-            console.log(`[${getTimestamp()}] info: Command response: ${message}`);
-            return chatClient.say(channel, message);
+          // Skip if command is in the excluded list (but don't log since we already logged above if needed)
+          if (excludedCommands.includes(functionName)) {
+            return;
           }
-        };
 
-        try {
-          commandFunction(clientWrapper, text, channel, tmiCompatibleTags);
-        } catch (error) {
-          console.log(`[${getTimestamp()}] error: Command ${commandName} failed:`, error.message);
-        }
-      });
+          if (typeof commandExports[functionName] === 'function') {
+            commands[functionName] = commandExports[functionName];
+          }
+        });
+
+        // Execute commands only if this is a command message and not excluded
+        Object.keys(commands).forEach(commandName => {
+          const commandFunction = commands[commandName];
+          const tmiCompatibleTags = {
+            username: user,
+            'display-name': msg.userInfo.displayName,
+            badges: {
+              broadcaster: isBroadcaster ? '1' : undefined,
+              moderator: isMod ? '1' : undefined,
+              vip: isVip ? '1' : undefined,
+              subscriber: msg.userInfo.isSubscriber ? '1' : undefined,    // Map from Twurple
+              founder: msg.userInfo.isFounder ? '1' : undefined           // Map from Twurple
+            },
+            isModUp: isModUp,
+            isVIPUp: isVIPUp,
+            isSpecialUser: isSpecialUser,
+            ...msg.userInfo
+          };
+
+          const clientWrapper = {
+            say: (channel, message) => {
+              console.log(`[${getTimestamp()}] info: Command response: ${message}`);
+              return chatClient.say(channel, message);
+            }
+          };
+
+          try {
+            commandFunction(clientWrapper, text, channel, tmiCompatibleTags);
+          } catch (error) {
+            console.log(`[${getTimestamp()}] error: Command ${commandName} failed:`, error.message);
+          }
+        });
+      }
+      // If not a command, skip all command processing entirely
 
     } catch (error) {
       console.log(`[${getTimestamp()}] error: Command processing failed:`, error.message);
@@ -571,6 +644,7 @@ async function main() {
   console.log(`[${getTimestamp()}] info: Using bot OAuth token for all operations`);
   console.log(`[${getTimestamp()}] info: Moderation: ${channelConfig.moderationEnabled ? 'Enabled' : 'Disabled'} (Bot acts as moderator)`);
   console.log(`[${getTimestamp()}] info: Redemptions: ${channelConfig.redemptionEnabled ? 'Enabled' : 'Disabled'}`);
+  console.log(`[${getTimestamp()}] info: Excluded Commands: ${channelConfig.excludedCommands?.length || 0}`);
   console.log(`[${getTimestamp()}] info: Monitoring chat messages...`);
 }
 

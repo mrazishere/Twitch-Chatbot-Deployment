@@ -53,7 +53,7 @@ async function main() {
     }
   }
 
-  // NEW: Function to create default channel config (integrated with OAuth system)
+  // UPDATED: Function to create default channel config (now includes excludedCommands)
   function createDefaultChannelConfig(channelName) {
     return {
       channelName: channelName,
@@ -67,7 +67,8 @@ async function main() {
       redemptionTimeoutDuration: 60,
       testMode: false,
       specialUsers: [],
-      timeoutUsers: []
+      timeoutUsers: [],
+      excludedCommands: [] // NEW: Add excludedCommands to default config
     };
   }
 
@@ -87,7 +88,7 @@ async function main() {
     // Set max number of channels to allow bot to be added to
     const maxChannels = `${process.env.MAX_CHANNELS}`;
 
-    // UPDATED: Add bot Function - Now creates default channel config
+    // UPDATED: Add bot Function - Now creates default channel config with excludedCommands
     async function addme() {
       const currentTime = getTimestamp();
       const input = message.split(" ");
@@ -112,7 +113,7 @@ async function main() {
             console.log(`stdout: ${stdout}`);
 
             if (parseInt(stdout) <= maxChannels) {
-              // NEW: Create default channel config when adding bot
+              // UPDATED: Create default channel config when adding bot (now includes excludedCommands)
               const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
               const configPath = `${configDir}/${addUser}.json`;
 
@@ -124,7 +125,7 @@ async function main() {
                 if (!fs.existsSync(configPath)) {
                   const defaultConfig = createDefaultChannelConfig(addUser);
                   fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
-                  console.log(`Created default config for ${addUser}`);
+                  console.log(`Created default config for ${addUser} with excludedCommands support`);
                 }
               } catch (configError) {
                 console.log(`Warning: Could not create config for ${addUser}:`, configError.message);
@@ -466,7 +467,7 @@ ${appsConfig.join(',\n')}
       });
     }
 
-    // Batch migration function
+    // UPDATED: Batch migration function - now ensures excludedCommands in configs
     async function batchmigrate() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -516,7 +517,7 @@ ${appsConfig.join(',\n')}
             const oldData = fs.readFileSync(channelFile, "utf8");
             fs.writeFileSync(`${channelFile}.backup`, oldData, "utf8");
 
-            // NEW: Create default config if it doesn't exist
+            // UPDATED: Create/update default config with excludedCommands if it doesn't exist
             const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
             const configPath = `${configDir}/${channelname}.json`;
 
@@ -526,6 +527,20 @@ ${appsConfig.join(',\n')}
               }
               const defaultConfig = createDefaultChannelConfig(channelname);
               fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
+              console.log(`Created config with excludedCommands for ${channelname}`);
+            } else {
+              // Update existing config to ensure it has excludedCommands
+              try {
+                const existingConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                if (!existingConfig.hasOwnProperty('excludedCommands')) {
+                  existingConfig.excludedCommands = [];
+                  existingConfig.lastUpdated = new Date().toISOString();
+                  fs.writeFileSync(configPath, JSON.stringify(existingConfig, null, 2));
+                  console.log(`Added excludedCommands to existing config for ${channelname}`);
+                }
+              } catch (configError) {
+                console.log(`Warning: Could not update config for ${channelname}:`, configError.message);
+              }
             }
 
             // Migrate
@@ -536,7 +551,7 @@ ${appsConfig.join(',\n')}
             // Restart
             exec(`pm2 restart "${channelname}"`);
             successful++;
-            console.log(`Successfully migrated ${channelname}`);
+            console.log(`Successfully migrated ${channelname} with excludedCommands support`);
 
           } catch (error) {
             console.log(`Failed to migrate ${channelname}: ${error.message}`);
@@ -555,7 +570,7 @@ ${appsConfig.join(',\n')}
         }
       }
 
-      client.say(channel, `Migration complete! ✅ Successful: ${successful} ❌ Failed: ${failed}. Use !rollbackall if issues occur.`);
+      client.say(channel, `Migration complete! ✅ Successful: ${successful} ❌ Failed: ${failed}. All configs now support excludedCommands. Use !rollbackall if issues occur.`);
     }
 
     // Emergency rollback all function
@@ -593,7 +608,7 @@ ${appsConfig.join(',\n')}
       client.say(channel, `🔄 Emergency rollback complete! Restored ${rolledBack} channels to previous versions.`);
     }
 
-    // UPDATED: Enable moderation function (now OAuth-aware)
+    // UPDATED: Enable moderation function (now OAuth-aware and ensures excludedCommands)
     async function enableModeration() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -620,6 +635,10 @@ ${appsConfig.join(',\n')}
         let config;
         if (fs.existsSync(configPath)) {
           config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+          // Ensure excludedCommands exists in existing config
+          if (!config.hasOwnProperty('excludedCommands')) {
+            config.excludedCommands = [];
+          }
         } else {
           config = createDefaultChannelConfig(targetChannel);
         }
@@ -643,7 +662,7 @@ ${appsConfig.join(',\n')}
           }
 
           if (oauthStatus.hasOAuth) {
-            client.say(channel, `✅ Moderation enabled for #${targetChannel}! OAuth token detected. Bot restarted with full features.`);
+            client.say(channel, `✅ Moderation enabled for #${targetChannel}! OAuth token detected. Bot restarted with full features including command exclusions.`);
           } else {
             client.say(channel, `⚠️ Moderation enabled for #${targetChannel} but no OAuth token found. Generate token at https://mr-ai.dev/auth for full features.`);
           }
@@ -654,7 +673,7 @@ ${appsConfig.join(',\n')}
       }
     }
 
-    // UPDATED: Disable moderation function
+    // UPDATED: Disable moderation function (ensures excludedCommands exists)
     async function disableModeration() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -674,6 +693,10 @@ ${appsConfig.join(',\n')}
         let config;
         if (fs.existsSync(configPath)) {
           config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+          // Ensure excludedCommands exists in existing config
+          if (!config.hasOwnProperty('excludedCommands')) {
+            config.excludedCommands = [];
+          }
         } else {
           config = createDefaultChannelConfig(targetChannel);
         }
@@ -698,7 +721,7 @@ ${appsConfig.join(',\n')}
       }
     }
 
-    // UPDATED: Check moderation status function (now OAuth-aware)
+    // UPDATED: Check moderation status function (now shows excludedCommands info)
     async function checkModerationStatus() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -717,16 +740,19 @@ ${appsConfig.join(',\n')}
           if (fs.existsSync(configPath)) {
             config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
           } else {
-            config = { moderationEnabled: false, chatOnly: true };
+            config = { moderationEnabled: false, chatOnly: true, excludedCommands: [] };
           }
 
           // Check OAuth status
           const oauthStatus = await checkOAuthStatus(targetChannel);
 
+          const excludedCount = config.excludedCommands ? config.excludedCommands.length : 0;
+
           client.say(channel,
             `#${targetChannel}: Moderation ${config.moderationEnabled ? 'Enabled' : 'Disabled'} | ` +
             `OAuth ${oauthStatus.hasOAuth ? '✅' : '❌'} | ` +
             `Mode: ${config.chatOnly ? 'Chat Only' : 'Full Features'} | ` +
+            `Excluded Commands: ${excludedCount} | ` +
             `Updated: ${config.lastUpdated || 'Default'}`
           );
         } catch (error) {
@@ -742,6 +768,7 @@ ${appsConfig.join(',\n')}
             let moderationEnabled = 0;
             let oauthEnabled = 0;
             let totalChannels = configFiles.length;
+            let totalExcludedCommands = 0;
 
             // Check OAuth status for all channels (limit to avoid rate limits)
             const sampleSize = Math.min(5, totalChannels);
@@ -749,6 +776,9 @@ ${appsConfig.join(',\n')}
               try {
                 const config = JSON.parse(fs.readFileSync(`${configDir}/${configFiles[i]}`, 'utf8'));
                 if (config.moderationEnabled) moderationEnabled++;
+                if (config.excludedCommands && Array.isArray(config.excludedCommands)) {
+                  totalExcludedCommands += config.excludedCommands.length;
+                }
 
                 const channelName = configFiles[i].replace('.json', '');
                 const oauthStatus = await checkOAuthStatus(channelName);
@@ -758,7 +788,7 @@ ${appsConfig.join(',\n')}
               }
             }
 
-            client.say(channel, `Mr-AI-is-Here Status: ${moderationEnabled}/${totalChannels} moderation enabled | ${oauthEnabled}/${sampleSize} OAuth active (sample)`);
+            client.say(channel, `Mr-AI-is-Here Status: ${moderationEnabled}/${totalChannels} moderation enabled | ${oauthEnabled}/${sampleSize} OAuth active (sample) | ${totalExcludedCommands} total excluded commands`);
           } else {
             client.say(channel, "No channel configurations found");
           }
@@ -768,7 +798,7 @@ ${appsConfig.join(',\n')}
       }
     }
 
-    // UPDATED: List channel configs function (now OAuth-aware)
+    // UPDATED: List channel configs function (now shows excludedCommands info)
     async function listChannelConfigs() {
       if (!isModUp) {
         client.say(channel, "Error: You are not a mod");
@@ -794,7 +824,9 @@ ${appsConfig.join(',\n')}
               const config = JSON.parse(fs.readFileSync(`${configDir}/${configFiles[i]}`, 'utf8'));
               const channelName = config.channelName;
               const status = config.moderationEnabled ? "MOD" : "CHAT";
-              response += `${channelName}(${status}) `;
+              const excludedCount = config.excludedCommands ? config.excludedCommands.length : 0;
+              const excludedInfo = excludedCount > 0 ? `-${excludedCount}cmd` : "";
+              response += `${channelName}(${status}${excludedInfo}) `;
             } catch (error) {
               console.log(`Error reading ${configFiles[i]}: ${error.message}`);
             }
@@ -931,6 +963,53 @@ ${appsConfig.join(',\n')}
       }
     }
 
+    // NEW: Update configs to ensure excludedCommands exists
+    async function updateConfigs() {
+      if (!isModUp) {
+        client.say(channel, "Error: You are not a mod");
+        return;
+      }
+
+      client.say(channel, "🔄 Updating all channel configs to ensure excludedCommands support...");
+
+      const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
+
+      try {
+        if (fs.existsSync(configDir)) {
+          const configFiles = fs.readdirSync(configDir).filter(file => file.endsWith('.json'));
+          let updated = 0;
+          let alreadyUpToDate = 0;
+          let errors = 0;
+
+          for (const configFile of configFiles) {
+            try {
+              const configPath = `${configDir}/${configFile}`;
+              const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+              if (!config.hasOwnProperty('excludedCommands')) {
+                config.excludedCommands = [];
+                config.lastUpdated = new Date().toISOString();
+                fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+                updated++;
+                console.log(`Added excludedCommands to ${configFile}`);
+              } else {
+                alreadyUpToDate++;
+              }
+            } catch (error) {
+              errors++;
+              console.log(`Error updating ${configFile}: ${error.message}`);
+            }
+          }
+
+          client.say(channel, `✅ Config update complete! Updated: ${updated} | Already up-to-date: ${alreadyUpToDate} | Errors: ${errors}`);
+        } else {
+          client.say(channel, "No channel configurations directory found");
+        }
+      } catch (error) {
+        client.say(channel, `Error during config update: ${error.message}`);
+      }
+    }
+
     // Command handlers
     if (message.split(" ")[0] === "!addme") {
       addme();
@@ -992,6 +1071,11 @@ ${appsConfig.join(',\n')}
       oauthReminder();
     }
 
+    // NEW: Command to update all configs with excludedCommands
+    if (message.split(" ")[0] === "!updateconfigs") {
+      updateConfigs();
+    }
+
     if (message.split(" ")[0] === "!help" && isModUp) {
       const helpMessage =
         "Mr-AI-is-Here Admin Commands: " +
@@ -999,6 +1083,7 @@ ${appsConfig.join(',\n')}
         "!enablemod <channel> | !disablemod <channel> | !modstatus [channel] | " +
         "!oauthstatus <channel> | !bulkoauth | !oauthreminder <channel> | " +
         "!testmigrate <channel> | !batchmigrate [size] | !rollback <channel> | !rollbackall | " +
+        "!updateconfigs | " +
         "OAuth Dashboard: https://mr-ai.dev/auth";
 
       client.say(channel, helpMessage);
