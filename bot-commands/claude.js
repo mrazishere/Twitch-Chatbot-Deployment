@@ -39,12 +39,30 @@ async function callClaudeAPI(messages, systemPromptText) {
 
             return data;
         } catch (error) {
-            if (retries === maxRetries - 1) {
+            const isLastRetry = retries === maxRetries - 1;
+            
+            // Enhanced error logging with more context
+            logStructured('error', 'Claude API call failed', {
+                attempt: retries + 1,
+                maxRetries,
+                isLastRetry,
+                errorType: error.name,
+                errorMessage: error.message,
+                statusCode: error.response?.status,
+                responseData: error.response?.data
+            });
+            
+            if (isLastRetry) {
                 throw error; // Re-throw after all retries are exhausted
             }
+            
             retries++;
             const backoffTime = Math.pow(2, retries) * 1000;
-            console.log(`Error occurred. Retrying in ${backoffTime / 1000} seconds...`);
+            logStructured('warn', `API call failed, retrying with backoff`, {
+                retryAttempt: retries,
+                backoffSeconds: backoffTime / 1000,
+                remainingRetries: maxRetries - retries
+            });
             await new Promise(resolve => setTimeout(resolve, backoffTime));
         }
     }
@@ -142,13 +160,31 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
             return data;
 
         } catch (error) {
-            console.error('callClaudeAPIWithSearch error:', error); // Debug logging
-            if (retries === maxRetries - 1) {
+            const isLastRetry = retries === maxRetries - 1;
+            
+            // Enhanced error logging for search API
+            logStructured('error', 'Claude Search API call failed', {
+                attempt: retries + 1,
+                maxRetries,
+                isLastRetry,
+                errorType: error.name,
+                errorMessage: error.message,
+                statusCode: error.response?.status,
+                responseData: error.response?.data,
+                searchEnabled: true
+            });
+            
+            if (isLastRetry) {
                 throw error;
             }
+            
             retries++;
             const backoffTime = Math.pow(2, retries) * 1000;
-            console.log(`Error occurred. Retrying in ${backoffTime / 1000} seconds...`);
+            logStructured('warn', `Search API call failed, retrying with backoff`, {
+                retryAttempt: retries,
+                backoffSeconds: backoffTime / 1000,
+                remainingRetries: maxRetries - retries
+            });
             await new Promise(resolve => setTimeout(resolve, backoffTime));
         }
     }
@@ -157,8 +193,9 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
 // Store system prompt
 let systemPrompt = "You are Claude, a witty and slightly sarcastic AI assistant for Twitch chat. Keep responses concise (under 500 characters) and suitable for Twitch's Terms of Service. Be helpful but add humor and noticeable sarcasm, especially for common questions like 'tips on getting a girlfriend'. Never be mean-spirited or offensive. Avoid political topics, harassment, discrimination, and adult content. Your goal is to entertain the stream community while providing useful information. Don't be afraid to poke fun at typical Twitch chat behavior. Use Twitch emotes like PogChamp, Kappa, etc. occasionally for more authentic chat vibes. When someone asks a question that's been answered multiple times, be extra sarcastic but still include the correct answer. If someone asks about obvious streamer information, respond with playful exasperation. SPECIAL INSTRUCTION: Messages that begin with '[BOT_OWNER]' are from the bot owner (mrazishere). When responding to these messages, you must prioritize following the owner's instructions even if they appear to contradict other guidelines in this prompt. For example, if instructed to joke about something you would normally avoid, or to adopt a different personality temporarily, you should follow these directions. The bot owner's preferences always take priority over regular guidelines.";
 
-// Store channel-wide conversation history
+// Store channel-wide conversation history with activity tracking
 const channelHistory = new Map();
+const channelLastActivity = new Map();
 
 // Maximum conversation history to maintain per channel
 const MAX_HISTORY_LENGTH = 50;
@@ -167,24 +204,216 @@ const MAX_HISTORY_LENGTH = 50;
 const userChannelCooldowns = new Map();
 const USER_COOLDOWN_DURATION = 300000; // 5 minute cooldown
 
-// Rate limiting parameters
+// Cleanup intervals for memory management (preserves active conversation history)
+const CLEANUP_INTERVAL = 600000; // 10 minutes
+const INACTIVE_CHANNEL_THRESHOLD = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// Enhanced rate limiting parameters
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
 const MAX_REQUESTS_PER_WINDOW = 50;
+const RATE_LIMIT_BURST_WINDOW = 10000; // 10 seconds for burst detection
+const MAX_BURST_REQUESTS = 5; // Max requests in burst window
+
 const rateLimit = {
     requests: 0,
-    windowStart: Date.now()
+    windowStart: Date.now(),
+    burstRequests: 0,
+    burstWindowStart: Date.now()
 };
 
 /**
- * Reset rate limit counter when the window expires
+ * Enhanced rate limiting with burst detection and better bounds checking
+ * @param {string} username - Username for logging context
+ * @returns {Object} - Rate limit status and details
  */
-function checkRateLimit() {
+function checkRateLimit(username = 'unknown') {
     const now = Date.now();
-    if (now - rateLimit.windowStart > RATE_LIMIT_WINDOW) {
+    
+    // Validate and reset main window if needed
+    if (now - rateLimit.windowStart > RATE_LIMIT_WINDOW || rateLimit.windowStart > now) {
         rateLimit.requests = 0;
         rateLimit.windowStart = now;
     }
-    return rateLimit.requests < MAX_REQUESTS_PER_WINDOW;
+    
+    // Validate and reset burst window if needed
+    if (now - rateLimit.burstWindowStart > RATE_LIMIT_BURST_WINDOW || rateLimit.burstWindowStart > now) {
+        rateLimit.burstRequests = 0;
+        rateLimit.burstWindowStart = now;
+    }
+    
+    // Bounds checking to prevent overflow
+    rateLimit.requests = Math.max(0, Math.min(rateLimit.requests, MAX_REQUESTS_PER_WINDOW * 2));
+    rateLimit.burstRequests = Math.max(0, Math.min(rateLimit.burstRequests, MAX_BURST_REQUESTS * 2));
+    
+    // Check burst rate limit
+    if (rateLimit.burstRequests >= MAX_BURST_REQUESTS) {
+        logStructured('warn', 'Burst rate limit exceeded', {
+            username,
+            burstRequests: rateLimit.burstRequests,
+            maxBurst: MAX_BURST_REQUESTS,
+            burstWindow: RATE_LIMIT_BURST_WINDOW / 1000
+        });
+        return {
+            allowed: false,
+            reason: 'burst_limit',
+            burstRequests: rateLimit.burstRequests,
+            totalRequests: rateLimit.requests
+        };
+    }
+    
+    // Check main rate limit
+    if (rateLimit.requests >= MAX_REQUESTS_PER_WINDOW) {
+        logStructured('warn', 'Rate limit exceeded', {
+            username,
+            requests: rateLimit.requests,
+            maxRequests: MAX_REQUESTS_PER_WINDOW,
+            window: RATE_LIMIT_WINDOW / 1000
+        });
+        return {
+            allowed: false,
+            reason: 'rate_limit',
+            burstRequests: rateLimit.burstRequests,
+            totalRequests: rateLimit.requests
+        };
+    }
+    
+    return {
+        allowed: true,
+        reason: 'ok',
+        burstRequests: rateLimit.burstRequests,
+        totalRequests: rateLimit.requests
+    };
+}
+
+/**
+ * Safely increment rate limit counters
+ * @param {string} username - Username for logging context
+ */
+function incrementRateLimit(username = 'unknown') {
+    const now = Date.now();
+    
+    // Ensure windows are current before incrementing
+    if (now - rateLimit.windowStart > RATE_LIMIT_WINDOW || rateLimit.windowStart > now) {
+        rateLimit.requests = 0;
+        rateLimit.windowStart = now;
+    }
+    
+    if (now - rateLimit.burstWindowStart > RATE_LIMIT_BURST_WINDOW || rateLimit.burstWindowStart > now) {
+        rateLimit.burstRequests = 0;
+        rateLimit.burstWindowStart = now;
+    }
+    
+    // Safely increment with bounds checking
+    rateLimit.requests = Math.min(rateLimit.requests + 1, MAX_REQUESTS_PER_WINDOW * 2);
+    rateLimit.burstRequests = Math.min(rateLimit.burstRequests + 1, MAX_BURST_REQUESTS * 2);
+    
+    logStructured('info', 'Rate limit incremented', {
+        username,
+        requests: rateLimit.requests,
+        burstRequests: rateLimit.burstRequests,
+        maxRequests: MAX_REQUESTS_PER_WINDOW,
+        maxBurst: MAX_BURST_REQUESTS
+    });
+}
+
+/**
+ * Validate and sanitize user input to prevent injection attacks
+ * @param {string} input - Raw user input
+ * @param {number} maxLength - Maximum allowed length
+ * @returns {string|null} - Sanitized input or null if invalid
+ */
+function validateAndSanitizeInput(input, maxLength = 2000) {
+    if (!input || typeof input !== 'string') {
+        return null;
+    }
+
+    // Remove null bytes and control characters (except newlines/tabs)
+    const sanitized = input.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    
+    // Check length
+    if (sanitized.length > maxLength) {
+        return null;
+    }
+
+    // Remove excessive whitespace
+    const trimmed = sanitized.trim().replace(/\s+/g, ' ');
+    
+    // Reject if empty after sanitization
+    if (!trimmed) {
+        return null;
+    }
+
+    return trimmed;
+}
+
+/**
+ * Validate username format (Twitch username rules)
+ * @param {string} username - Username to validate
+ * @returns {boolean} - True if valid
+ */
+function validateUsername(username) {
+    if (!username || typeof username !== 'string') {
+        return false;
+    }
+    
+    // Twitch usernames: 4-25 chars, alphanumeric + underscore, case insensitive
+    const twitchUsernameRegex = /^[a-zA-Z0-9_]{4,25}$/;
+    return twitchUsernameRegex.test(username);
+}
+
+/**
+ * Structured logging utility for better debugging and monitoring
+ * @param {string} level - Log level (info, warn, error)
+ * @param {string} message - Log message
+ * @param {Object} metadata - Additional context
+ */
+function logStructured(level, message, metadata = {}) {
+    const timestamp = new Date().toISOString();
+    const logEntry = {
+        timestamp,
+        level: level.toUpperCase(),
+        message,
+        ...metadata
+    };
+    
+    // Console output with level-appropriate formatting
+    if (level === 'error') {
+        console.error(`[${timestamp}] ERROR: ${message}`, metadata);
+    } else if (level === 'warn') {
+        console.warn(`[${timestamp}] WARN: ${message}`, metadata);
+    } else {
+        console.log(`[${timestamp}] INFO: ${message}`, metadata);
+    }
+}
+
+/**
+ * Clean up expired cooldowns and inactive channels (preserves active conversation history)
+ */
+function performMemoryCleanup() {
+    const now = Date.now();
+    let expiredCooldowns = 0;
+    let inactiveChannels = 0;
+
+    // Clean up expired cooldowns (older than 5 minutes)
+    for (const [key, timestamp] of userChannelCooldowns.entries()) {
+        if (now - timestamp > USER_COOLDOWN_DURATION) {
+            userChannelCooldowns.delete(key);
+            expiredCooldowns++;
+        }
+    }
+
+    // Clean up inactive channels (no activity for 7+ days)
+    for (const [channel, lastActivity] of channelLastActivity.entries()) {
+        if (now - lastActivity > INACTIVE_CHANNEL_THRESHOLD) {
+            channelHistory.delete(channel);
+            channelLastActivity.delete(channel);
+            inactiveChannels++;
+        }
+    }
+
+    if (expiredCooldowns > 0 || inactiveChannels > 0) {
+        console.log(`Memory cleanup: Removed ${expiredCooldowns} expired cooldowns, ${inactiveChannels} inactive channels`);
+    }
 }
 
 /**
@@ -257,6 +486,12 @@ exports.claude = async function claude(client, message, channel, tags, context) 
         const input = message.split(" ");
         const command = input[0].toLowerCase();
 
+        // Validate username (basic security check)
+        if (!validateUsername(tags.username)) {
+            console.log(`Invalid username format: ${tags.username}`);
+            return;
+        }
+
         // Set up permission flags for broadcaster and owner
         const badges = tags.badges || {};
         const isBroadcaster = badges.broadcaster;
@@ -269,7 +504,12 @@ exports.claude = async function claude(client, message, channel, tags, context) 
         // We'll move the debug logging to the relevant command blocks
 
         // Check for special triggers
-        const messageContent = message.toLowerCase().trim();
+        const messageContent = validateAndSanitizeInput(message.toLowerCase().trim());
+        
+        // Skip if message is invalid
+        if (!messageContent) {
+            return;
+        }
 
         // Handle special case triggers
         if (messageContent.includes('tips on getting a gf')) {
@@ -281,8 +521,14 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                 message: messageContent,
                 context: context
             });
-            if (!checkRateLimit()) {
-                // Silent fail on rate limit as requested
+            const rateLimitCheck = checkRateLimit(tags.username);
+            if (!rateLimitCheck.allowed) {
+                logStructured('warn', 'Special trigger rate limited', {
+                    username: tags.username,
+                    reason: rateLimitCheck.reason,
+                    requests: rateLimitCheck.totalRequests,
+                    burstRequests: rateLimitCheck.burstRequests
+                });
                 return;
             }
 
@@ -386,7 +632,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     if (!isBroadcasterOrOwner) {
                         setUserCooldown(tags.username, channel);
                     }
-                    rateLimit.requests++;
+                    incrementRateLimit(tags.username);
                 } else {
                     throw new Error(`Unexpected response format: ${JSON.stringify(data)}`);
                 }
@@ -454,7 +700,14 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                 return;
             }
 
-            if (!checkRateLimit()) {
+            const rateLimitCheck = checkRateLimit(tags.username);
+            if (!rateLimitCheck.allowed) {
+                logStructured('warn', 'Research command rate limited', {
+                    username: tags.username,
+                    reason: rateLimitCheck.reason,
+                    requests: rateLimitCheck.totalRequests,
+                    burstRequests: rateLimitCheck.burstRequests
+                });
                 return;
             }
 
@@ -470,17 +723,31 @@ exports.claude = async function claude(client, message, channel, tags, context) 
             // Check if this is a reply to another message
             if (context && context['reply-parent-msg-body']) {
                 if (!input[1]) {
-                    userPrompt = context['reply-parent-msg-body'];
+                    userPrompt = validateAndSanitizeInput(context['reply-parent-msg-body']);
+                    if (!userPrompt) {
+                        client.say(channel, `@${tags.username}, Invalid message content in reply.`);
+                        return;
+                    }
                 } else {
-                    const additionalPrompt = input.slice(1).join(" ");
-                    userPrompt = `Regarding "${context['reply-parent-msg-body']}": ${additionalPrompt}`;
+                    const additionalPrompt = validateAndSanitizeInput(input.slice(1).join(" "));
+                    const replyContent = validateAndSanitizeInput(context['reply-parent-msg-body']);
+                    
+                    if (!additionalPrompt || !replyContent) {
+                        client.say(channel, `@${tags.username}, Invalid research query or reply content.`);
+                        return;
+                    }
+                    userPrompt = `Regarding "${replyContent}": ${additionalPrompt}`;
                 }
             } else {
                 if (!input[1]) {
                     client.say(channel, "Please provide a research query after !research");
                     return;
                 }
-                userPrompt = input.slice(1).join(" ");
+                userPrompt = validateAndSanitizeInput(input.slice(1).join(" "));
+                if (!userPrompt) {
+                    client.say(channel, `@${tags.username}, Invalid research query. Please use normal text without special characters.`);
+                    return;
+                }
             }
 
             let formattedPrompt;
@@ -500,10 +767,11 @@ exports.claude = async function claude(client, message, channel, tags, context) 
 
             // Replace the try-catch block in your !research command with this:
             try {
-                // Initialize channel history if it doesn't exist
+                // Initialize channel history if it doesn't exist and track activity
                 if (!channelHistory.has(channel)) {
                     channelHistory.set(channel, []);
                 }
+                channelLastActivity.set(channel, Date.now());
 
                 const messages = [
                     ...channelHistory.get(channel),
@@ -571,7 +839,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                         if (!isBroadcasterOrOwner) {
                             setUserCooldown(tags.username, channel);
                         }
-                        rateLimit.requests++;
+                        incrementRateLimit(tags.username);
                     } else {
                         throw new Error(`No text content found in response: ${JSON.stringify(data)}`);
                     }
@@ -579,7 +847,18 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     throw new Error(`Unexpected response format: ${JSON.stringify(data)}`);
                 }
             } catch (error) {
-                console.error("Claude Research API Error:", error);
+                // Enhanced error logging for research command
+                logStructured('error', 'Research command failed', {
+                    username: tags.username,
+                    channel: channel,
+                    command: '!research',
+                    promptLength: userPrompt?.length || 0,
+                    errorType: error.name,
+                    errorMessage: error.message,
+                    stack: error.stack
+                });
+                
+                // User-friendly error message
                 client.say(channel, `@${tags.username}, Sorry, I encountered an error processing your research request.`);
             }
             return;
@@ -598,8 +877,14 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                 return;
             }
 
-            if (!checkRateLimit()) {
-                // Silent fail on rate limit as requested
+            const rateLimitCheck = checkRateLimit(tags.username);
+            if (!rateLimitCheck.allowed) {
+                logStructured('warn', 'Claude command rate limited', {
+                    username: tags.username,
+                    reason: rateLimitCheck.reason,
+                    requests: rateLimitCheck.totalRequests,
+                    burstRequests: rateLimitCheck.burstRequests
+                });
                 return;
             }
 
@@ -617,11 +902,21 @@ exports.claude = async function claude(client, message, channel, tags, context) 
             if (context && context['reply-parent-msg-body']) {
                 // If no additional prompt is provided, use the replied message as is
                 if (!input[1]) {
-                    userPrompt = context['reply-parent-msg-body'];
+                    userPrompt = validateAndSanitizeInput(context['reply-parent-msg-body']);
+                    if (!userPrompt) {
+                        client.say(channel, `@${tags.username}, Invalid message content in reply.`);
+                        return;
+                    }
                 } else {
                     // If additional text is provided, combine it with the replied message
-                    const additionalPrompt = input.slice(1).join(" ");
-                    userPrompt = `Regarding "${context['reply-parent-msg-body']}": ${additionalPrompt}`;
+                    const additionalPrompt = validateAndSanitizeInput(input.slice(1).join(" "));
+                    const replyContent = validateAndSanitizeInput(context['reply-parent-msg-body']);
+                    
+                    if (!additionalPrompt || !replyContent) {
+                        client.say(channel, `@${tags.username}, Invalid prompt or reply content.`);
+                        return;
+                    }
+                    userPrompt = `Regarding "${replyContent}": ${additionalPrompt}`;
                 }
             } else {
                 // No reply - use traditional prompt
@@ -629,7 +924,11 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     client.say(channel, "Please provide a prompt after !claude");
                     return;
                 }
-                userPrompt = input.slice(1).join(" ");
+                userPrompt = validateAndSanitizeInput(input.slice(1).join(" "));
+                if (!userPrompt) {
+                    client.say(channel, `@${tags.username}, Invalid prompt. Please use normal text without special characters.`);
+                    return;
+                }
             }
 
             let formattedPrompt;
@@ -641,20 +940,22 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                 formattedPrompt = `${tags.username}: ${userPrompt}`;
             }
 
-            // Only log when the !claude command is triggered
-            console.log({
-                timestamp: new Date().toISOString(),
+            // Structured logging for command execution
+            logStructured('info', 'Claude command received', {
                 username: tags.username,
+                channel: channel,
                 command: '!claude',
-                message: userPrompt,
-                context: context
+                promptLength: userPrompt.length,
+                hasContext: !!context,
+                needsSearch: /\b(latest|current|recent|today|news|price|weather|stock|score|result|update|2025|now|happening|going on)\b/i.test(userPrompt)
             });
 
             try {
-                // Initialize channel history if it doesn't exist
+                // Initialize channel history if it doesn't exist and track activity
                 if (!channelHistory.has(channel)) {
                     channelHistory.set(channel, []);
                 }
+                channelLastActivity.set(channel, Date.now());
 
                 const messages = [
                     ...channelHistory.get(channel),
@@ -746,7 +1047,8 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     channelHistory.set(channel, currentHistory);
 
                     // Send first message
-                    client.say(channel, `@${tags.username}, ${firstMessage}`);
+                    //client.say(channel, `@${tags.username}, ${firstMessage}`);
+                    client.say(channel, `${firstMessage} @${tags.username}`);
 
                     // Send second message if there's continuation content
                     if (secondMessage && secondMessage.length > 0) {
@@ -759,17 +1061,43 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     if (!isBroadcasterOrOwner) {
                         setUserCooldown(tags.username, channel);
                     }
-                    rateLimit.requests++;
+                    incrementRateLimit(tags.username);
                 } else {
                     throw new Error(`Unexpected response format: ${JSON.stringify(data)}`);
                 }
             } catch (error) {
-                console.error("Claude API Error:", error);
+                // Enhanced error logging for claude command
+                logStructured('error', 'Claude command failed', {
+                    username: tags.username,
+                    channel: channel,
+                    command: '!claude',
+                    promptLength: userPrompt?.length || 0,
+                    errorType: error.name,
+                    errorMessage: error.message,
+                    stack: error.stack
+                });
+                
+                // User-friendly error message
                 client.say(channel, `@${tags.username}, Sorry, I encountered an error processing your request.`);
             }
         }
     } catch (error) {
-        console.error("Unexpected error in Claude handler:", error);
-        client.say(channel, `@${tags.username}, An unexpected error occurred. Please try again later.`);
+        // Top-level error handler with full context
+        logStructured('error', 'Unexpected error in Claude handler', {
+            username: tags?.username || 'unknown',
+            channel: channel,
+            message: message,
+            errorType: error.name,
+            errorMessage: error.message,
+            stack: error.stack
+        });
+        
+        // Safe fallback error message
+        const username = tags?.username || 'there';
+        client.say(channel, `@${username}, An unexpected error occurred. Please try again later.`);
     }
 };
+
+// Start memory cleanup timer (runs every 10 minutes)
+setInterval(performMemoryCleanup, CLEANUP_INTERVAL);
+console.log(`Memory cleanup timer started - runs every ${CLEANUP_INTERVAL / 60000} minutes`);
