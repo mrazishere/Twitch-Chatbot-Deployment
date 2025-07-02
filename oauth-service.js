@@ -723,11 +723,35 @@ app.get('/auth/revoke', requireAuth, async (req, res) => {
     }
 });
 
+// SECURITY: Validate channel name to prevent path traversal attacks
+function validateChannelName(channelName) {
+    if (!channelName || typeof channelName !== 'string') {
+        return false;
+    }
+    
+    // Block obvious path traversal attempts
+    if (channelName.includes('..') || channelName.includes('/') || channelName.includes('\\') || channelName.includes('\0')) {
+        return false;
+    }
+    
+    // Allow reasonable channel name lengths (preserve existing functionality)
+    if (channelName.length > 100) {
+        return false;
+    }
+    
+    return true;
+}
+
 // API endpoint to get OAuth token for bot use (unchanged - this stays the same for bot access)
 app.get('/auth/token', async (req, res) => {
     const channel = req.query.channel;
     if (!channel) {
         return res.status(400).json({ error: 'Channel parameter is required' });
+    }
+
+    // SECURITY: Validate channel parameter to prevent path traversal
+    if (!validateChannelName(channel)) {
+        return res.status(400).json({ error: 'Invalid channel name format' });
     }
 
     try {
