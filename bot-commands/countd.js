@@ -23,7 +23,40 @@ const COUNTDOWN_FILE = path.join(__dirname, '..', 'countd.json');
 function readCountdownsFromFile() {
     try {
         const data = fs.readFileSync(COUNTDOWN_FILE, 'utf8');
-        return JSON.parse(data);
+        const parsed = JSON.parse(data);
+        
+        // SECURITY: Validate JSON structure
+        if (typeof parsed !== 'object' || parsed === null) {
+            console.error('Invalid countdown JSON structure: not an object');
+            return {};
+        }
+        
+        // Validate and sanitize countdown objects
+        const sanitized = {};
+        for (const [id, countdown] of Object.entries(parsed)) {
+            if (countdown && 
+                typeof countdown === 'object' &&
+                typeof countdown.channel === 'string' &&
+                typeof countdown.title === 'string' &&
+                typeof countdown.duration === 'number' &&
+                typeof countdown.startTime === 'number' &&
+                typeof countdown.counter === 'number') {
+                
+                // Sanitize the title during load
+                const sanitizedTitle = validateAndSanitizeTitle(countdown.title);
+                if (sanitizedTitle) {
+                    sanitized[id] = {
+                        channel: countdown.channel,
+                        title: sanitizedTitle,
+                        duration: countdown.duration,
+                        startTime: countdown.startTime,
+                        counter: countdown.counter
+                    };
+                }
+            }
+        }
+        
+        return sanitized;
     } catch (error) {
         console.error('Error reading countdown file:', error);
         return {};
@@ -46,6 +79,59 @@ function writeCountdownsToFile(countdowns) {
 
 let countdowns = readCountdownsFromFile();
 let countdownIDCounter = 1; // Counter for generating unique countdown IDs
+
+// SECURITY: Validation and sanitization functions
+function validateAndSanitizeTitle(title) {
+    if (!title || typeof title !== 'string') {
+        return null;
+    }
+    
+    // Remove potential script tags and HTML
+    title = title.replace(/<[^>]*>/g, '');
+    
+    // Limit title length to prevent DoS
+    if (title.length > 50) {
+        title = title.substring(0, 50);
+    }
+    
+    // Remove control characters and null bytes
+    title = title.replace(/[\x00-\x1F\x7F]/g, '');
+    
+    // Trim whitespace
+    title = title.trim();
+    
+    if (title.length === 0) {
+        return null;
+    }
+    
+    return title;
+}
+
+function validateDuration(duration, unit) {
+    if (isNaN(duration) || duration <= 0) {
+        return false;
+    }
+    
+    if (unit !== 's' && unit !== 'm' && unit !== 'h') {
+        return false;
+    }
+    
+    // Convert to seconds for validation
+    let seconds = duration;
+    if (unit === 'm') seconds *= 60;
+    if (unit === 'h') seconds *= 3600;
+    
+    // Limit maximum duration to 24 hours
+    if (seconds > 86400) {
+        return false;
+    }
+    
+    return true;
+}
+
+function getChannelCountdownCount(channel) {
+    return Object.values(countdowns).filter(countdown => countdown.channel === channel).length;
+}
 
 exports.countd = async function countd(client, message, channel, tags) {
     function formatTime(seconds) {
@@ -72,7 +158,14 @@ exports.countd = async function countd(client, message, channel, tags) {
         }
     }
 
-    function removeCountdown(client, channel, tags, title) {
+    function removeCountdown(client, channel, tags, rawTitle) {
+        // SECURITY: Validate and sanitize title
+        const title = validateAndSanitizeTitle(rawTitle);
+        if (!title) {
+            client.say(channel, `@${tags.username}, invalid title. Use alphanumeric characters only, max 50 chars.`);
+            return;
+        }
+
         const countdownIDToRemove = Object.keys(countdowns).find(id => countdowns[id].title === title && countdowns[id].channel === channel);
         if (countdownIDToRemove) {
             clearInterval(countdowns[countdownIDToRemove].interval);
@@ -86,14 +179,53 @@ exports.countd = async function countd(client, message, channel, tags) {
 
     function addCountdown(client, channel, tags, params) {
         try {
-            const args = params.split(" ");
-            const title = args.shift(); // Extract the title from the arguments
-            const durationStr = args.shift(); // Extract the duration string from the arguments
+            // SECURITY: Check countdown limit per channel (max 5 active)
+            if (getChannelCountdownCount(channel) >= 5) {
+                client.say(channel, `@${tags.username}, maximum of 5 active countdowns per channel.`);
+                return;
+            }
+
+            // SECURITY: Improved parsing to handle quoted titles
+            let rawTitle, durationStr;
+            
+            if (params.startsWith('"')) {
+                // Handle quoted title: "title with spaces" duration
+                const closeQuoteIndex = params.indexOf('"', 1);
+                if (closeQuoteIndex !== -1) {
+                    rawTitle = params.substring(1, closeQuoteIndex); // Extract content between quotes
+                    const remaining = params.substring(closeQuoteIndex + 1).trim();
+                    durationStr = remaining.split(" ")[0]; // First word after quoted title
+                } else {
+                    // Unclosed quote - treat as regular parsing
+                    const args = params.split(" ");
+                    rawTitle = args.shift();
+                    durationStr = args.shift();
+                }
+            } else {
+                // Regular parsing for unquoted titles
+                const args = params.split(" ");
+                rawTitle = args.shift();
+                durationStr = args.shift();
+            }
+
+            if (!rawTitle || !durationStr) {
+                client.say(channel, `@${tags.username}, invalid usage of command. Usage: !countd add [title] [number][s/m/h]`);
+                return;
+            }
+
+            // SECURITY: Validate and sanitize title
+            const title = validateAndSanitizeTitle(rawTitle);
+            if (!title) {
+                client.say(channel, `@${tags.username}, invalid title. Use alphanumeric characters only, max 50 chars.`);
+                return;
+            }
+
             const unit = durationStr.slice(-1); // Get the last character to determine the unit
             const duration = parseInt(durationStr.slice(0, -1)); // Get the duration without the unit
 
-            if (!title || isNaN(duration) || !unit || (unit !== 's' && unit !== 'm')) {
-                client.say(channel, `@${tags.username}, invalid usage of command. Usage: !countd add [title] [number][s/m]`);
+            // SECURITY: Validate duration and unit
+            if (!validateDuration(duration, unit)) {
+                client.say(channel, `@${tags.username}, invalid duration. Use 1-86400s, 1-1440m, or 1-24h (max 24 hours).`);
                 return;
             }
 
@@ -107,6 +239,8 @@ exports.countd = async function countd(client, message, channel, tags) {
             let cd = duration;
             if (unit === 'm') {
                 cd *= 60; // Convert minutes to seconds
+            } else if (unit === 'h') {
+                cd *= 3600; // Convert hours to seconds
             }
 
             const countdownID = countdownIDCounter++; // Generate unique countdown ID
@@ -149,14 +283,47 @@ exports.countd = async function countd(client, message, channel, tags) {
 
     function editCountdown(client, channel, tags, params) {
         try {
-            const args = params.split(" ");
-            const title = args.shift(); // Extract the title from the arguments
-            const durationStr = args.shift(); // Extract the new duration string from the arguments
+            // SECURITY: Improved parsing to handle quoted titles
+            let rawTitle, durationStr;
+            
+            if (params.startsWith('"')) {
+                // Handle quoted title: "title with spaces" duration
+                const closeQuoteIndex = params.indexOf('"', 1);
+                if (closeQuoteIndex !== -1) {
+                    rawTitle = params.substring(1, closeQuoteIndex); // Extract content between quotes
+                    const remaining = params.substring(closeQuoteIndex + 1).trim();
+                    durationStr = remaining.split(" ")[0]; // First word after quoted title
+                } else {
+                    // Unclosed quote - treat as regular parsing
+                    const args = params.split(" ");
+                    rawTitle = args.shift();
+                    durationStr = args.shift();
+                }
+            } else {
+                // Regular parsing for unquoted titles
+                const args = params.split(" ");
+                rawTitle = args.shift();
+                durationStr = args.shift();
+            }
+
+            if (!rawTitle || !durationStr) {
+                client.say(channel, `@${tags.username}, invalid usage of command. Usage: !countd edit [title] [number][s/m/h]`);
+                return;
+            }
+
+            // SECURITY: Validate and sanitize title
+            const title = validateAndSanitizeTitle(rawTitle);
+            if (!title) {
+                client.say(channel, `@${tags.username}, invalid title. Use alphanumeric characters only, max 50 chars.`);
+                return;
+            }
+
             const unit = durationStr.slice(-1); // Get the last character to determine the unit
             const newDuration = parseInt(durationStr.slice(0, -1)); // Get the new duration without the unit
 
-            if (!title || isNaN(newDuration) || !unit || (unit !== 's' && unit !== 'm')) {
-                client.say(channel, `@${tags.username}, invalid usage of command. Usage: !countd edit [title] [number][s/m]`);
+            // SECURITY: Validate duration and unit
+            if (!validateDuration(newDuration, unit)) {
+                client.say(channel, `@${tags.username}, invalid duration. Use 1-86400s, 1-1440m, or 1-24h (max 24 hours).`);
                 return;
             }
 
@@ -171,6 +338,8 @@ exports.countd = async function countd(client, message, channel, tags) {
             let cd = newDuration;
             if (unit === 'm') {
                 cd *= 60; // Convert minutes to seconds
+            } else if (unit === 'h') {
+                cd *= 3600; // Convert hours to seconds
             }
 
             const startTime = Math.floor(Date.now() / 1000); // Current time in seconds
@@ -208,7 +377,14 @@ exports.countd = async function countd(client, message, channel, tags) {
         }
     }
 
-    function incrementCounter(client, channel, tags, title) {
+    function incrementCounter(client, channel, tags, rawTitle) {
+        // SECURITY: Validate and sanitize title
+        const title = validateAndSanitizeTitle(rawTitle);
+        if (!title) {
+            client.say(channel, `@${tags.username}, invalid title. Use alphanumeric characters only, max 50 chars.`);
+            return;
+        }
+
         const countdownID = Object.keys(countdowns).find(id => countdowns[id].title === title && countdowns[id].channel === channel);
         if (countdownID) {
             countdowns[countdownID].counter += 1;
@@ -219,7 +395,14 @@ exports.countd = async function countd(client, message, channel, tags) {
         }
     }
 
-    function decrementCounter(client, channel, tags, title) {
+    function decrementCounter(client, channel, tags, rawTitle) {
+        // SECURITY: Validate and sanitize title
+        const title = validateAndSanitizeTitle(rawTitle);
+        if (!title) {
+            client.say(channel, `@${tags.username}, invalid title. Use alphanumeric characters only, max 50 chars.`);
+            return;
+        }
+
         const countdownID = Object.keys(countdowns).find(id => countdowns[id].title === title && countdowns[id].channel === channel);
         if (countdownID) {
             countdowns[countdownID].counter -= 1;

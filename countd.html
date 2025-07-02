@@ -31,8 +31,19 @@
 
                     timers.forEach(timer => {
                         const timerElement = document.createElement('div');
+                        
+                        // SECURITY: Create elements safely without innerHTML to prevent XSS
+                        const strongElement = document.createElement('strong');
                         const counterText = timer.counter > 0 ? ` (${timer.counter})` : '';
-                        timerElement.innerHTML = `<strong>${timer.title}${counterText}</strong> - <span id="timer-${timer.startTime}"></span>`;
+                        strongElement.textContent = `${timer.title}${counterText}`;
+                        
+                        const spanElement = document.createElement('span');
+                        spanElement.id = `timer-${timer.startTime}`;
+                        
+                        timerElement.appendChild(strongElement);
+                        timerElement.appendChild(document.createTextNode(' - '));
+                        timerElement.appendChild(spanElement);
+                        
                         document.getElementById('content').appendChild(timerElement);
 
                         const endTime = (timer.startTime * 1000) + (timer.duration * 1000);
