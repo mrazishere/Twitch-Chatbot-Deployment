@@ -19,8 +19,30 @@ async function main() {
     return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
 
+  // SECURITY: Validate channel name to prevent path traversal
+  function validateChannelName(channelName) {
+    if (!channelName || typeof channelName !== 'string') {
+      return false;
+    }
+    
+    // Block path traversal attempts
+    if (channelName.includes('..') || channelName.includes('/') || channelName.includes('\\') || channelName.includes('\0')) {
+      return false;
+    }
+    
+    // Twitch username validation: 4-25 chars, alphanumeric + underscore only
+    const twitchUsernameRegex = /^[a-zA-Z0-9_]{4,25}$/;
+    return twitchUsernameRegex.test(channelName);
+  }
+
   // Load channel configuration
   function loadChannelConfig(channelName) {
+    // SECURITY: Validate channel name before path construction
+    if (!validateChannelName(channelName)) {
+      console.log(`[${getTimestamp()}] error: Invalid channel name: ${channelName}`);
+      return defaultConfig;
+    }
+    
     const configPath = `${process.env.BOT_FULL_PATH}/channel-configs/${channelName}.json`;
     const defaultConfig = {
       channelName: channelName,
@@ -53,6 +75,12 @@ async function main() {
 
   // Save channel configuration
   function saveChannelConfig(channelName, config) {
+    // SECURITY: Validate channel name before path construction
+    if (!validateChannelName(channelName)) {
+      console.log(`[${getTimestamp()}] error: Invalid channel name for save: ${channelName}`);
+      return false;
+    }
+    
     const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
     const configPath = `${configDir}/${channelName}.json`;
 
@@ -360,9 +388,16 @@ async function main() {
 
         case 'special':
           const specialAction = args[2]?.toLowerCase();
-          const targetUser = args[3]?.toLowerCase();
+          const rawTargetUser = args[3];
 
-          if (specialAction === 'add' && targetUser) {
+          if (specialAction === 'add' && rawTargetUser) {
+            // SECURITY: Validate username before adding to special users
+            const targetUser = rawTargetUser.toLowerCase();
+            if (!validateChannelName(targetUser)) {
+              await chatClient.say(channel, `Invalid username format: ${rawTargetUser}. Use only letters, numbers, and underscores.`);
+              break;
+            }
+            
             if (!channelConfig.specialUsers.includes(targetUser)) {
               channelConfig.specialUsers.push(targetUser);
               if (saveChannelConfig(channelName, channelConfig)) {
@@ -373,7 +408,14 @@ async function main() {
             } else {
               await chatClient.say(channel, `${targetUser} is already a special user.`);
             }
-          } else if (specialAction === 'remove' && targetUser) {
+          } else if (specialAction === 'remove' && rawTargetUser) {
+            // SECURITY: Validate username before removing from special users
+            const targetUser = rawTargetUser.toLowerCase();
+            if (!validateChannelName(targetUser)) {
+              await chatClient.say(channel, `Invalid username format: ${rawTargetUser}. Use only letters, numbers, and underscores.`);
+              break;
+            }
+            
             const index = channelConfig.specialUsers.indexOf(targetUser);
             if (index > -1) {
               channelConfig.specialUsers.splice(index, 1);
@@ -398,9 +440,16 @@ async function main() {
         // NEW: Exclude commands management
         case 'exclude':
           const excludeAction = args[2]?.toLowerCase();
-          const commandName = args[3]?.toLowerCase();
+          const rawCommandName = args[3];
 
-          if (excludeAction === 'add' && commandName) {
+          if (excludeAction === 'add' && rawCommandName) {
+            // SECURITY: Validate command name to prevent injection
+            const commandName = rawCommandName.toLowerCase();
+            if (!/^[a-zA-Z0-9_-]{1,30}$/.test(commandName)) {
+              await chatClient.say(channel, `Invalid command name: ${rawCommandName}. Use only letters, numbers, underscores, and hyphens.`);
+              break;
+            }
+            
             if (!channelConfig.excludedCommands.includes(commandName)) {
               channelConfig.excludedCommands.push(commandName);
               if (saveChannelConfig(channelName, channelConfig)) {
@@ -411,7 +460,14 @@ async function main() {
             } else {
               await chatClient.say(channel, `Command "${commandName}" is already disabled.`);
             }
-          } else if (excludeAction === 'remove' && commandName) {
+          } else if (excludeAction === 'remove' && rawCommandName) {
+            // SECURITY: Validate command name to prevent injection
+            const commandName = rawCommandName.toLowerCase();
+            if (!/^[a-zA-Z0-9_-]{1,30}$/.test(commandName)) {
+              await chatClient.say(channel, `Invalid command name: ${rawCommandName}. Use only letters, numbers, underscores, and hyphens.`);
+              break;
+            }
+            
             const index = channelConfig.excludedCommands.indexOf(commandName);
             if (index > -1) {
               channelConfig.excludedCommands.splice(index, 1);

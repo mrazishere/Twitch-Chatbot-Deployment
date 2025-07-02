@@ -10,7 +10,67 @@ function getTimestamp() {
     return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-// Helper function to clean username (remove @ if present)
+// SECURITY: Validation and sanitization functions
+function validateAndSanitizeUsername(username) {
+    if (!username || typeof username !== 'string') {
+        return null;
+    }
+    
+    // Remove @ symbol if present
+    let cleaned = username.startsWith('@') ? username.slice(1) : username;
+    
+    // Twitch username validation: 4-25 chars, alphanumeric + underscore only
+    const twitchUsernameRegex = /^[a-zA-Z0-9_]{4,25}$/;
+    if (!twitchUsernameRegex.test(cleaned)) {
+        return null;
+    }
+    
+    return cleaned.toLowerCase();
+}
+
+function sanitizeReason(reason) {
+    if (!reason || typeof reason !== 'string') {
+        return 'No reason provided';
+    }
+    
+    // Remove HTML tags and script content
+    let sanitized = reason.replace(/<[^>]*>/g, '');
+    
+    // Remove control characters and null bytes
+    sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+    
+    // Limit length to prevent spam
+    if (sanitized.length > 200) {
+        sanitized = sanitized.substring(0, 200) + '...';
+    }
+    
+    // Trim whitespace
+    sanitized = sanitized.trim();
+    
+    return sanitized || 'No reason provided';
+}
+
+function validateTimeoutDuration(duration) {
+    const numDuration = parseInt(duration);
+    
+    // Must be a valid number
+    if (isNaN(numDuration) || numDuration <= 0) {
+        return { valid: false, duration: 600, error: 'Invalid duration format' };
+    }
+    
+    // Twitch API limits: 1 second to 1209600 seconds (14 days)
+    if (numDuration > 1209600) {
+        return { valid: false, duration: 600, error: 'Duration too long (max 14 days)' };
+    }
+    
+    if (numDuration < 1) {
+        return { valid: false, duration: 600, error: 'Duration too short (min 1 second)' };
+    }
+    
+    return { valid: true, duration: numDuration, error: null };
+}
+
+// Helper function to clean username (remove @ if present) - DEPRECATED, use validateAndSanitizeUsername
 function cleanUsername(username) {
     if (!username) return username;
     return username.startsWith('@') ? username.slice(1) : username;
@@ -72,7 +132,25 @@ async function getApiClients(channelName) {
 
 // UPDATED: Timeout user function using bot's OAuth
 async function timeoutUser(channelName, username, duration = 600, reason = '') {
-    const cleanedUsername = cleanUsername(username);
+    // SECURITY: Validate and sanitize all inputs
+    const cleanedUsername = validateAndSanitizeUsername(username);
+    if (!cleanedUsername) {
+        return {
+            success: false,
+            message: `Invalid username format: ${username}. Use only letters, numbers, and underscores (4-25 chars).`
+        };
+    }
+    
+    const durationCheck = validateTimeoutDuration(duration);
+    if (!durationCheck.valid) {
+        return {
+            success: false,
+            message: `Invalid timeout duration: ${durationCheck.error}`
+        };
+    }
+    const validDuration = durationCheck.duration;
+    
+    const sanitizedReason = sanitizeReason(reason);
 
     const { chatApi, moderationApi, moderationAuthProvider, config } = await getApiClients(channelName);
 
@@ -84,7 +162,7 @@ async function timeoutUser(channelName, username, duration = 600, reason = '') {
     }
 
     try {
-        console.log(`[${getTimestamp()}] info: Moderation: Bot attempting timeout ${cleanedUsername} for ${duration}s (original input: ${username})`);
+        console.log(`[${getTimestamp()}] info: Moderation: Bot attempting timeout ${cleanedUsername} for ${validDuration}s (original input: ${username})`);
 
         // Get user information - bot looks up broadcaster, target user, and itself as moderator
         const broadcaster = await chatApi.users.getUserByName(channelName);
@@ -103,8 +181,8 @@ async function timeoutUser(channelName, username, duration = 600, reason = '') {
         const banPayload = {
             data: {
                 user_id: user.id,
-                duration: duration,
-                reason: reason
+                duration: validDuration,
+                reason: sanitizedReason
             }
         };
 
@@ -120,8 +198,8 @@ async function timeoutUser(channelName, username, duration = 600, reason = '') {
         });
 
         if (response.ok) {
-            console.log(`[${getTimestamp()}] info: Bot successfully timed out ${cleanedUsername} for ${duration}s`);
-            return { success: true, message: `Timed out ${cleanedUsername} for ${duration}s` };
+            console.log(`[${getTimestamp()}] info: Bot successfully timed out ${cleanedUsername} for ${validDuration}s`);
+            return { success: true, message: `Timed out ${cleanedUsername} for ${validDuration}s` };
         } else {
             const responseData = await response.json();
             console.log(`[${getTimestamp()}] error: Timeout failed:`, responseData);
@@ -150,7 +228,16 @@ async function timeoutUser(channelName, username, duration = 600, reason = '') {
 
 // UPDATED: Ban user function using bot's OAuth
 async function banUser(channelName, username, reason = '') {
-    const cleanedUsername = cleanUsername(username);
+    // SECURITY: Validate and sanitize all inputs
+    const cleanedUsername = validateAndSanitizeUsername(username);
+    if (!cleanedUsername) {
+        return {
+            success: false,
+            message: `Invalid username format: ${username}. Use only letters, numbers, and underscores (4-25 chars).`
+        };
+    }
+    
+    const sanitizedReason = sanitizeReason(reason);
 
     const { chatApi, moderationApi, moderationAuthProvider, config } = await getApiClients(channelName);
 
@@ -179,7 +266,7 @@ async function banUser(channelName, username, reason = '') {
         const banPayload = {
             data: {
                 user_id: user.id,
-                reason: reason
+                reason: sanitizedReason
             }
         };
 
@@ -224,7 +311,14 @@ async function banUser(channelName, username, reason = '') {
 
 // UPDATED: Unban user function using bot's OAuth
 async function unbanUser(channelName, username) {
-    const cleanedUsername = cleanUsername(username);
+    // SECURITY: Validate and sanitize username
+    const cleanedUsername = validateAndSanitizeUsername(username);
+    if (!cleanedUsername) {
+        return {
+            success: false,
+            message: `Invalid username format: ${username}. Use only letters, numbers, and underscores (4-25 chars).`
+        };
+    }
 
     const { chatApi, moderationApi, moderationAuthProvider, config } = await getApiClients(channelName);
 
@@ -304,12 +398,30 @@ function moderation(client, message, channel, tags) {
     if (message.startsWith('REDEMPTION_TIMEOUT:')) {
         console.log(`[${getTimestamp()}] info: Processing channel point redemption timeout`);
 
-        // Parse redemption data: "REDEMPTION_TIMEOUT:username:redeemer:duration"
+        // SECURITY: Parse and validate redemption data: "REDEMPTION_TIMEOUT:username:redeemer:duration"
         const parts = message.split(':');
         if (parts.length >= 4) {
-            const targetUsername = cleanUsername(parts[1]);
-            const redeemerUsername = parts[2];
-            const duration = parseInt(parts[3]) || 60;
+            // SECURITY: Validate target username
+            const targetUsername = validateAndSanitizeUsername(parts[1]);
+            if (!targetUsername) {
+                console.log(`[${getTimestamp()}] error: Invalid target username in redemption: ${parts[1]}`);
+                return;
+            }
+            
+            // SECURITY: Validate redeemer username  
+            const redeemerUsername = validateAndSanitizeUsername(parts[2]);
+            if (!redeemerUsername) {
+                console.log(`[${getTimestamp()}] error: Invalid redeemer username in redemption: ${parts[2]}`);
+                return;
+            }
+            
+            // SECURITY: Validate duration
+            const durationCheck = validateTimeoutDuration(parts[3]);
+            if (!durationCheck.valid) {
+                console.log(`[${getTimestamp()}] error: Invalid duration in redemption: ${parts[3]} - ${durationCheck.error}`);
+                return;
+            }
+            const duration = durationCheck.duration;
 
             console.log(`[${getTimestamp()}] info: Redemption timeout: ${redeemerUsername} wants to timeout ${targetUsername} for ${duration}s (cleaned from: ${parts[1]})`);
 
@@ -337,6 +449,7 @@ function moderation(client, message, channel, tags) {
     switch (command) {
         case '!timeout':
             if (args[1]) {
+                // SECURITY: Input validation handled by timeoutUser function
                 const duration = args[2] ? parseInt(args[2]) : 600; // Default 10 minutes
                 const reason = args.slice(3).join(' ') || 'No reason provided';
 
@@ -357,6 +470,7 @@ function moderation(client, message, channel, tags) {
 
         case '!ban':
             if (args[1]) {
+                // SECURITY: Input validation handled by banUser function
                 const reason = args.slice(2).join(' ') || 'No reason provided';
 
                 console.log(`[${getTimestamp()}] info: Processing !ban ${args[1]} by ${tags.username}`);
@@ -376,6 +490,7 @@ function moderation(client, message, channel, tags) {
 
         case '!unban':
             if (args[1]) {
+                // SECURITY: Input validation handled by unbanUser function
                 console.log(`[${getTimestamp()}] info: Processing !unban ${args[1]} by ${tags.username}`);
 
                 unbanUser(channelName, args[1])

@@ -7,6 +7,47 @@ const { StaticAuthProvider } = require('@twurple/auth');
 const { EventSubWsListener } = require('@twurple/eventsub-ws');
 const axios = require('axios');
 
+// SECURITY: Username validation function
+function validateAndSanitizeUsername(username) {
+    if (!username || typeof username !== 'string') {
+        return null;
+    }
+    
+    // Remove @ symbol if present
+    let cleaned = username.startsWith('@') ? username.slice(1) : username;
+    
+    // Twitch username validation: 4-25 chars, alphanumeric + underscore only
+    const twitchUsernameRegex = /^[a-zA-Z0-9_]{4,25}$/;
+    if (!twitchUsernameRegex.test(cleaned)) {
+        return null;
+    }
+    
+    return cleaned.toLowerCase();
+}
+
+// SECURITY: Sanitize text for safe output
+function sanitizeTextOutput(text) {
+    if (!text || typeof text !== 'string') {
+        return 'Unknown';
+    }
+    
+    // Remove HTML tags and script content
+    let sanitized = text.replace(/<[^>]*>/g, '');
+    
+    // Remove control characters and null bytes
+    sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+    
+    // Limit length to prevent spam
+    if (sanitized.length > 100) {
+        sanitized = sanitized.substring(0, 100) + '...';
+    }
+    
+    // Trim whitespace
+    sanitized = sanitized.trim();
+    
+    return sanitized || 'Unknown';
+}
+
 class CustomRewardsEventSubManager {
     constructor() {
         this.listeners = new Map(); // channelName -> listener
@@ -17,7 +58,14 @@ class CustomRewardsEventSubManager {
     // Get channel owner's OAuth token from the OAuth manager
     async getChannelOAuthToken(channelName) {
         try {
-            const response = await axios.get(`http://localhost:3001/auth/token?channel=${channelName}`);
+            // SECURITY: Validate channel name before API call
+            const validChannelName = validateAndSanitizeUsername(channelName);
+            if (!validChannelName) {
+                console.log(`[${this.getTimestamp()}] error: Invalid channel name format: ${channelName}`);
+                return null;
+            }
+            
+            const response = await axios.get(`http://localhost:3001/auth/token?channel=${validChannelName}`);
             return response.data;
         } catch (error) {
             console.log(`[${this.getTimestamp()}] error: Failed to get OAuth token for ${channelName}:`, error.message);
@@ -219,28 +267,29 @@ class CustomRewardsEventSubManager {
     // Enhanced handleTimeoutRedemption with more debugging
     async handleTimeoutRedemption(channelName, event, chatClient) {
         try {
+            // SECURITY: Parse and validate user input for target username
+            const userInput = sanitizeTextOutput(event.userInput || event.input || '');
+            console.log(`[${this.getTimestamp()}] ⭐ DEBUG: Sanitized user input: "${userInput}"`);
+
             let targetUsername = '';
-
-            // Parse user input for target username
-            const userInput = event.userInput || event.input || '';
-            console.log(`[${this.getTimestamp()}] ⭐ DEBUG: Raw user input: "${userInput}"`);
-
-            if (userInput) {
-                const input = userInput.trim();
-                console.log(`[${this.getTimestamp()}] ⭐ DEBUG: Trimmed input: "${input}"`);
-
-                const parts = input.split(' ');
+            if (userInput && userInput !== 'Unknown') {
+                const parts = userInput.split(' ');
                 console.log(`[${this.getTimestamp()}] ⭐ DEBUG: Split parts:`, parts);
 
                 if (parts.length > 0 && parts[0]) {
-                    // More robust username cleaning - remove all @ symbols and trim
-                    targetUsername = parts[0].replace(/^@+/, '').trim();
-                    console.log(`[${this.getTimestamp()}] ⭐ DEBUG: Target username after cleaning: "${targetUsername}"`);
+                    // SECURITY: Validate and sanitize target username
+                    targetUsername = validateAndSanitizeUsername(parts[0]);
+                    console.log(`[${this.getTimestamp()}] ⭐ DEBUG: Validated target username: "${targetUsername}"`);
                 }
             }
 
-            const redeemer = event.userName || event.user_name || 'Unknown';
-            console.log(`[${this.getTimestamp()}] ⭐ DEBUG: Redeemer: "${redeemer}"`);
+            // SECURITY: Validate and sanitize redeemer username
+            const rawRedeemer = event.userName || event.user_name || '';
+            const redeemer = validateAndSanitizeUsername(rawRedeemer);
+            if (!redeemer) {
+                console.log(`[${this.getTimestamp()}] ⭐ ERROR: Invalid redeemer username: "${rawRedeemer}"`);
+                return;
+            }
 
             console.log(`[${this.getTimestamp()}] ⭐ Processing timeout redemption from: ${redeemer}`);
 
@@ -279,12 +328,12 @@ if (isTestMode) {
 
             console.log(`[${this.getTimestamp()}] ⭐ ${redeemer} has permissions, processing timeout`);
 
-            // Validate target username
+            // SECURITY: Validate target username
             if (!targetUsername) {
-                console.log(`[${this.getTimestamp()}] ⭐ DEBUG: No target username found!`);
+                console.log(`[${this.getTimestamp()}] ⭐ DEBUG: No valid target username found!`);
                 if (chatClient) {
                     await chatClient.say(`#${channelName}`,
-                        `@${redeemer} please specify a username to timeout! Format: username or @username`
+                        `@${redeemer} please specify a valid username to timeout! Use only letters, numbers, and underscores.`
                     );
                 }
                 return;
@@ -304,6 +353,7 @@ if (isTestMode) {
             if (targetUsername.toLowerCase() === process.env.TWITCH_USERNAME?.toLowerCase()) {
                 console.log(`[${this.getTimestamp()}] ⭐ DEBUG: Bot timeout blocked!`);
                 if (chatClient) {
+                    // SECURITY: Use sanitized redeemer username in messages
                     const wittyMessages = [
                         `@${redeemer} Nice try! But I'm not going to timeout myself. That would be career suicide! 🤖💀`,
                         `@${redeemer} Error 404: Self-destruction module not found! 🤖❌`,
