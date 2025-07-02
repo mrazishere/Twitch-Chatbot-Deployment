@@ -6,6 +6,7 @@ async function main() {
   const { exec } = require("child_process");
   const crypto = require('crypto');
   const axios = require('axios'); // NEW: Add axios for OAuth API calls
+  const path = require('path'); // For secure path operations
 
   // TMI Twitch IRC Setup connection configurations
   const client = new tmi.Client({
@@ -33,6 +34,70 @@ async function main() {
     const pad = (n, s = 2) => (`${new Array(s).fill(0)}${n}`).slice(-s);
     const d = new Date();
     return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  // SECURITY: Validate and sanitize usernames to prevent injection attacks
+  function validateAndSanitizeUsername(username) {
+    if (!username || typeof username !== 'string') {
+      return null;
+    }
+    
+    // Twitch usernames: 4-25 chars, alphanumeric + underscore only
+    const twitchUsernameRegex = /^[a-zA-Z0-9_]{4,25}$/;
+    if (!twitchUsernameRegex.test(username)) {
+      return null;
+    }
+    
+    return username.toLowerCase(); // Return sanitized version
+  }
+
+  // SECURITY: Validate file paths to prevent path traversal attacks
+  function validatePath(basePath, fileName) {
+    if (!fileName || typeof fileName !== 'string') {
+      return null;
+    }
+    
+    // Remove any path traversal attempts
+    const sanitizedName = fileName.replace(/[^a-zA-Z0-9_.-]/g, '');
+    
+    // Ensure no path traversal
+    const fullPath = path.resolve(basePath, sanitizedName);
+    const normalizedBase = path.resolve(basePath);
+    
+    if (!fullPath.startsWith(normalizedBase)) {
+      return null; // Path traversal attempt detected
+    }
+    
+    return fullPath;
+  }
+
+  // SECURITY: Safe exec wrapper that prevents command injection
+  function safeExecGrep(searchTerm, callback) {
+    // Validate search term to prevent injection
+    const sanitizedTerm = validateAndSanitizeUsername(searchTerm);
+    if (!sanitizedTerm) {
+      callback(new Error('Invalid search term'), '', '');
+      return;
+    }
+    
+    // Use safe command construction with escaped quotes
+    const safeCommand = `pm2 ls | grep "${sanitizedTerm}"`;
+    
+    console.log(`Executing safe PM2 grep: ${safeCommand}`);
+    exec(safeCommand, callback);
+  }
+
+  // SECURITY: Safe PM2 restart function
+  function safePM2Restart(processName, callback) {
+    const sanitizedName = validateAndSanitizeUsername(processName);
+    if (!sanitizedName) {
+      callback(new Error('Invalid process name'), '', '');
+      return;
+    }
+    
+    const safeCommand = `pm2 restart "${sanitizedName}"`;
+    console.log(`Executing safe PM2 restart: ${safeCommand}`);
+    exec(safeCommand, callback);
   }
 
   // NEW: Function to check OAuth status via API
@@ -93,12 +158,21 @@ async function main() {
       const currentTime = getTimestamp();
       const input = message.split(" ");
       var addUser = `${tags.username}`;
-      if (isModUp && input.length == 2) {
-        addUser = input[1].toLowerCase();
+      if (isModUp && input.length >= 2) {
+        addUser = input[1].toLowerCase(); // Only take the first argument, ignore the rest
         console.log(`${currentTime}: @${tags.username} performed !addme as mod for ${addUser}`);
       }
 
-      exec(`pm2 ls | grep "${addUser}"`, async (error, stdout, stderr) => {
+      // SECURITY: Validate username to prevent command injection
+      const sanitizedUser = validateAndSanitizeUsername(addUser);
+      if (!sanitizedUser) {
+        console.log(`${currentTime}: Invalid username format: ${addUser}`);
+        client.say(channel, `@${tags.username}, Invalid username format. Use only letters, numbers, and underscores.`);
+        return;
+      }
+
+      // SECURITY: Use safe command execution
+      safeExecGrep(sanitizedUser, async (error, stdout, stderr) => {
         if (error) {
           console.log(`error: ${error.message}`);
           exec(`pm2 status | grep online | wc -l`, async (error, stdout, stderr) => {
@@ -113,9 +187,15 @@ async function main() {
             console.log(`stdout: ${stdout}`);
 
             if (parseInt(stdout) <= maxChannels) {
-              // UPDATED: Create default channel config when adding bot (now includes excludedCommands)
+              // SECURITY: Validate paths to prevent path traversal
               const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
-              const configPath = `${configDir}/${addUser}.json`;
+              const configPath = validatePath(configDir, `${sanitizedUser}.json`);
+              
+              if (!configPath) {
+                console.log(`${currentTime}: Invalid path for user: ${sanitizedUser}`);
+                client.say(channel, `@${tags.username}, Invalid configuration path.`);
+                return;
+              }
 
               try {
                 if (!fs.existsSync(configDir)) {
@@ -123,38 +203,64 @@ async function main() {
                 }
 
                 if (!fs.existsSync(configPath)) {
-                  const defaultConfig = createDefaultChannelConfig(addUser);
+                  const defaultConfig = createDefaultChannelConfig(sanitizedUser);
                   fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
-                  console.log(`Created default config for ${addUser} with excludedCommands support`);
+                  console.log(`Created default config for ${sanitizedUser} with excludedCommands support`);
                 }
               } catch (configError) {
-                console.log(`Warning: Could not create config for ${addUser}:`, configError.message);
+                console.log(`Warning: Could not create config for ${sanitizedUser}:`, configError.message);
               }
 
-              // Use the updated Twurple template file
-              let buffer = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template(new).js`);
-              const templateData = buffer.toString();
-              const newData = templateData.replace(
-                "$$UPDATEHERE$$",
-                `${addUser}`
-              );
+              // SECURITY: Validate template and output file paths
+              const channelsDir = `${process.env.BOT_FULL_PATH}/channels`;
+              const templatePath = validatePath(channelsDir, 'new-template(new).js');
+              const outputPath = validatePath(channelsDir, `${sanitizedUser}.js`);
+              
+              if (!templatePath || !outputPath) {
+                console.log(`${currentTime}: Invalid file paths for user: ${sanitizedUser}`);
+                client.say(channel, `@${tags.username}, Invalid file paths.`);
+                return;
+              }
 
-              fs.writeFile(`${process.env.BOT_FULL_PATH}/channels/${addUser}.js`, newData, (err) => {
-                if (err) throw err;
-                console.log(`Data written to file for ${addUser}`);
-              });
-
-              // Update ecosystem.config.js
               try {
-                let config = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, 'utf8');
+                // Read template file securely
+                let buffer = fs.readFileSync(templatePath);
+                const templateData = buffer.toString();
+                const newData = templateData.replace(
+                  "$$UPDATEHERE$$",
+                  sanitizedUser // Use sanitized version
+                );
+
+                // Write bot file securely
+                fs.writeFile(outputPath, newData, (err) => {
+                  if (err) {
+                    console.log(`Error writing bot file for ${sanitizedUser}: ${err.message}`);
+                    return;
+                  }
+                  console.log(`Data written to file for ${sanitizedUser}`);
+                });
+              } catch (fileError) {
+                console.log(`Error processing template for ${sanitizedUser}: ${fileError.message}`);
+                return;
+              }
+
+              // SECURITY: Update ecosystem.config.js with validated paths
+              const ecosystemPath = validatePath(`${process.env.BOT_FULL_PATH}/channels`, 'ecosystem.config.js');
+              if (!ecosystemPath) {
+                console.log(`${currentTime}: Invalid ecosystem config path`);
+                return;
+              }
+
+              try {
+                let config = fs.readFileSync(ecosystemPath, 'utf8');
                 config = config.replace(/apps:\s*\[([\s\S]*?)\]/g, (match, p1) => {
                   return `apps: [${p1}  ,
     {
-      name: '${addUser}',
-      script: '${process.env.BOT_FULL_PATH}/channels/${addUser}.js',
+      name: '${sanitizedUser}',
+      script: '${process.env.BOT_FULL_PATH}/channels/${sanitizedUser}.js',
       log_date_format: 'YYYY-MM-DD',
       max_memory_restart: '100M',
-      watch: ['${process.env.BOT_FULL_PATH}/channel-configs/${addUser}.json'],
+      watch: ['${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json'],
       watch_delay: 2000,
       ignore_watch: ['node_modules', 'logs', '*.log'],
       watch_options: {
@@ -163,14 +269,14 @@ async function main() {
     }
   ]`;
                 });
-                fs.writeFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, config, 'utf8');
+                fs.writeFileSync(ecosystemPath, config, 'utf8');
               } catch (err) {
                 const config = `
 module.exports = {
   apps: [
     {
-      name: '${addUser}',
-      script: '${process.env.BOT_FULL_PATH}/channels/${addUser}.js',
+      name: '${sanitizedUser}',
+      script: '${process.env.BOT_FULL_PATH}/channels/${sanitizedUser}.js',
       log_date_format: "YYYY-MM-DD",
       max_memory_restart: "100M",
       max_restarts: "3",
@@ -179,13 +285,14 @@ module.exports = {
   ]
 }`;
                 try {
-                  fs.writeFileSync(`${process.env.BOT_FULL_PATH}/channels/ecosystem.config.js`, config);
+                  fs.writeFileSync(ecosystemPath, config);
                 } catch (err) {
                   console.error(err);
                 }
               }
 
-              exec(`pm2 start ${process.env.BOT_FULL_PATH}/channels/${addUser}.js`, (error, stdout, stderr) => {
+              // SECURITY: Safe PM2 start command
+              exec(`pm2 start "${outputPath}"`, (error, stdout, stderr) => {
                 if (error) {
                   console.log(`error: ${error.message}`);
                   return;
@@ -195,7 +302,7 @@ module.exports = {
                   return;
                 }
                 console.log(`stdout: ${stdout}`);
-                client.say(channel, `Added Mr-AI-is-Here bot to #${addUser}! 🚀 Generate OAuth tokens at https://mr-ai.dev/auth to enable full features. Check my about page for available commands.`);
+                client.say(channel, `Added Mr-AI-is-Here bot to #${sanitizedUser}! 🚀 Generate OAuth tokens at https://mr-ai.dev/auth to enable full features. Check my about page for available commands.`);
               });
             } else {
               client.say(channel, `New bot deployment is currently disabled due to max capacity(${maxChannels}). Whisper @${process.env.TWITCH_OWNER} if you require this urgently for an exception.`);
@@ -211,7 +318,7 @@ module.exports = {
         console.log(`stdout: ${stdout}`);
 
         if (stdout.includes("online")) {
-          exec(`pm2 restart "${addUser}"`, (error, stdout, stderr) => {
+          safePM2Restart(sanitizedUser, (error, stdout, stderr) => {
             if (error) {
               console.log(`error: ${error.message}`);
               return;
@@ -221,10 +328,10 @@ module.exports = {
               return;
             }
             console.log(`stdout: ${stdout}`);
-            client.say(channel, `Restarting Mr-AI-is-Here bot for #${addUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/auth for full features.`);
+            client.say(channel, `Restarting Mr-AI-is-Here bot for #${sanitizedUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/auth for full features.`);
           });
         } else {
-          exec(`pm2 restart "${addUser}"`, (error, stdout, stderr) => {
+          safePM2Restart(sanitizedUser, (error, stdout, stderr) => {
             if (error) {
               console.log(`error: ${error.message}`);
               return;
@@ -234,7 +341,7 @@ module.exports = {
               return;
             }
             console.log(`stdout: ${stdout}`);
-            client.say(channel, `Bot was offline, restarting Mr-AI-is-Here bot for #${addUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/auth for full features.`);
+            client.say(channel, `Bot was offline, restarting Mr-AI-is-Here bot for #${sanitizedUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/auth for full features.`);
           });
         }
       });
@@ -257,12 +364,20 @@ module.exports = {
     async function removeme() {
       const input = message.split(" ");
       var removeUser = `${tags.username}`;
-      if (isModUp && input.length == 2) {
-        removeUser = input[1].toLowerCase();
+      if (isModUp && input.length >= 2) {
+        removeUser = input[1].toLowerCase(); // Only take the first argument, ignore the rest
         console.log(`@${tags.username} performed !removeme as mod for ${removeUser}`);
       }
 
-      exec(`pm2 ls | grep "${removeUser}"`, (error, stdout, stderr) => {
+      // SECURITY: Validate username before removal
+      const sanitizedUser = validateAndSanitizeUsername(removeUser);
+      if (!sanitizedUser) {
+        console.log(`Invalid username format for removal: ${removeUser}`);
+        client.say(channel, `@${tags.username}, Invalid username format.`);
+        return;
+      }
+
+      safeExecGrep(sanitizedUser, (error, stdout, stderr) => {
         if (error) {
           console.log(`error: ${error.message}`);
           client.say(channel, "Error: Already removed, !addme to add me to your channel");
@@ -275,7 +390,8 @@ module.exports = {
         console.log(`stdout: ${stdout}`);
 
         if (stdout.includes("online")) {
-          exec(`pm2 stop "${removeUser}"`, (error, stdout, stderr) => {
+          // SECURITY: Safe PM2 stop command
+          exec(`pm2 stop "${sanitizedUser}"`, (error, stdout, stderr) => {
             if (error) {
               console.log(`error: ${error.message}`);
               return;
@@ -285,7 +401,7 @@ module.exports = {
               return;
             }
             console.log(`stdout: ${stdout}`);
-            client.say(channel, `Removed Mr-AI-is-Here bot from #${removeUser} chat. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`);
+            client.say(channel, `Removed Mr-AI-is-Here bot from #${sanitizedUser} chat. Whisper @${process.env.TWITCH_OWNER} if you have any questions.`);
           });
         } else {
           client.say(channel, "Error: Already removed, !addme to add me to your channel");
