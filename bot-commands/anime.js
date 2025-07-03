@@ -21,30 +21,8 @@ async function sleep(ms) {
 }
 
 exports.anime = async function anime(client, message, channel, tags) {
-  input = message.split(" ");
+  const input = message.split(" ");
   if (input[0] === "!anime") {
-    const fetchResponse = await fetch('https://animechan.vercel.app/api/random', { method: 'GET', headers: { 'accept': 'application/json', 'content-type': 'application/json' } })
-      .then(response => {
-        if (response.ok) {
-          response.json().then((data) => {
-            var outputArr = JSON.parse(JSON.stringify(data));
-            var output1 = outputArr['anime'];
-            var output2 = outputArr['character'];
-            var output3 = outputArr['quote'];
-            sleep(1000);
-            if (!input[1]) {
-              client.say(channel, `@${tags.username}, ` + output3 + " ~ " + output2 + " from " + output1);
-            } else {
-              client.say(channel, `@${tags.username}, this command does not accept any inputs.`);
-            }
-          });
-        } else {
-          client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
-        }
-      })
-      .catch(error => {
-        console.log(error);
-      });
-    return;
+    return; // Silently disabled due to API issues
   }
 };

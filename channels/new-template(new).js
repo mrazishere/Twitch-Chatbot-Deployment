@@ -489,8 +489,48 @@ async function main() {
           }
           break;
 
+        // Location configuration for forex and timezone commands
+        case 'location':
+          const locationAction = args[2]?.toLowerCase();
+          
+          if (locationAction === 'set') {
+            const rawLocation = args.slice(3).join(' '); // Allow multi-word countries like "united states"
+            
+            if (!rawLocation) {
+              await chatClient.say(channel, "Usage: !config location set [country name] (e.g., !config location set united states)");
+              break;
+            }
+            
+            // Validate location input
+            const location = rawLocation.toLowerCase().trim();
+            if (!/^[a-zA-Z\s\-']{2,50}$/.test(location)) {
+              await chatClient.say(channel, "Invalid location. Use only letters, spaces, and hyphens (e.g., 'united states', 'south korea').");
+              break;
+            }
+            
+            channelConfig['irl-location'] = location;
+            if (saveChannelConfig(channelName, channelConfig)) {
+              await chatClient.say(channel, `Location set to: ${location}. This will be used for forex auto-conversion and timezone detection.`);
+            } else {
+              await chatClient.say(channel, "Failed to save location setting.");
+            }
+          } else if (locationAction === 'get' || !locationAction) {
+            const currentLocation = channelConfig['irl-location'] || 'Not set';
+            await chatClient.say(channel, `Current location: ${currentLocation}`);
+          } else if (locationAction === 'clear') {
+            delete channelConfig['irl-location'];
+            if (saveChannelConfig(channelName, channelConfig)) {
+              await chatClient.say(channel, "Location cleared.");
+            } else {
+              await chatClient.say(channel, "Failed to clear location.");
+            }
+          } else {
+            await chatClient.say(channel, "Usage: !config location set/get/clear [country name]");
+          }
+          break;
+
         default:
-          await chatClient.say(channel, "Config commands: !config status | !config enable | !config disable | !config redemption enable/disable | !config redemption-status | !config modstatus | !config special add/remove/list [username] | !config exclude add/remove/list [commandname]");
+          await chatClient.say(channel, "Config commands: !config status | !config enable | !config disable | !config redemption enable/disable | !config redemption-status | !config modstatus | !config special add/remove/list [username] | !config exclude add/remove/list [commandname] | !config location set/get/clear [country]");
       }
       return;
     }

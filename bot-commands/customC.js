@@ -27,6 +27,7 @@
  */
 
 const fs = require('fs');
+const path = require('path');
 const {
     promisify
 } = require('util');
@@ -34,82 +35,175 @@ const {
 const readFileAsync = promisify(fs.readFile);
 const writeFileAsync = promisify(fs.writeFile);
 
+// Rate limiting map to track user requests
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 30000; // 30 seconds
+const MAX_REQUESTS = 10; // Max 10 requests per 30 seconds for custom commands
+
+// Rate limiting check
+function checkRateLimit(username) {
+  const now = Date.now();
+  const userRequests = rateLimitMap.get(username) || [];
+  
+  // Remove old requests outside the window
+  const validRequests = userRequests.filter(timestamp => now - timestamp < RATE_LIMIT_WINDOW);
+  
+  if (validRequests.length >= MAX_REQUESTS) {
+    return false; // Rate limited
+  }
+  
+  validRequests.push(now);
+  rateLimitMap.set(username, validRequests);
+  return true; // Not rate limited
+}
+
+// Input sanitization functions
+function sanitizeCommandName(name) {
+  if (!name || typeof name !== 'string') return '';
+  // Only allow alphanumeric characters, no special chars
+  return name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().substring(0, 25);
+}
+
+function sanitizeCommandResponse(response) {
+  if (!response || typeof response !== 'string') return '';
+  // Remove potential XSS and harmful content, but allow basic text
+  return response.replace(/[<>]/g, '').trim().substring(0, 500);
+}
+
+// Path validation to prevent directory traversal
+function validateChannelPath(channelName) {
+  if (!channelName || typeof channelName !== 'string') return null;
+  const sanitized = channelName.replace(/[^a-zA-Z0-9_-]/g, '');
+  if (sanitized !== channelName || sanitized.length === 0) return null;
+  return sanitized;
+}
+
 exports.customC = async function customC(client, message, channel, tags) {
+    const input = message.split(" ");
+    
+    // Check rate limiting first
+    if (!checkRateLimit(tags.username)) {
+        client.say(channel, `@${tags.username}, please wait before using custom commands again.`);
+        return;
+    }
+    
     const badges = tags.badges || {};
     const isBroadcaster = badges.broadcaster || tags.isBroadcaster;
     const isMod = badges.moderator || tags.isMod;
     const isVIP = badges.vip || tags.isVip;
-    const isModUp = isBroadcaster || isMod || tags.username == `${process.env.TWITCH_OWNER}`;
+    const isModUp = isBroadcaster || isMod || tags.username === process.env.TWITCH_OWNER;
     const isVIPUp = isVIP || isModUp;
-    const channel1 = channel.substring(1);
+    const channelName = channel.startsWith('#') ? channel.substring(1) : channel;
+    
+    // Validate channel path to prevent directory traversal
+    const validatedChannelName = validateChannelPath(channelName);
+    if (!validatedChannelName) {
+        console.error(`[CUSTOMC] Invalid channel name: ${channelName}`);
+        return;
+    }
 
     let customCommands = {};
     try {
-        const data = await readFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel.replace('#', '')}.json`);
+        const safePath = path.join(process.env.BOT_FULL_PATH || '.', 'bot-commands', 'custom', `${validatedChannelName}.json`);
+        const data = await readFileAsync(safePath, 'utf8');
         customCommands = JSON.parse(data);
     } catch (err) {
-        //console.log("No custom commands found for this channel.");
+        // File doesn't exist yet, start with empty commands
+        if (err.code !== 'ENOENT') {
+            console.error(`[CUSTOMC] Error loading commands for ${validatedChannelName}:`, err.message);
+        }
     }
 
     function commandExists(commandName) {
         return customCommands.hasOwnProperty(commandName);
     }
 
-    // Add command function that stores the commandName, modOnly, and commandResponse and the number of times it has been used and saves it to the JSON file
-    function addCommand(commandName, modOnly, commandResponse, commandCounter) {
-        if (commandExists(commandName)) {
+    // Add command function with security validation
+    async function addCommand(commandName, modOnly, commandResponse) {
+        // Sanitize inputs
+        const sanitizedName = sanitizeCommandName(commandName);
+        const sanitizedResponse = sanitizeCommandResponse(commandResponse);
+        
+        if (!sanitizedName || sanitizedName.length < 3) {
+            return `@${tags.username}, Invalid command name! Must be 3-25 alphanumeric characters.`;
+        }
+        
+        if (!sanitizedResponse || sanitizedResponse.length < 1) {
+            return `@${tags.username}, Invalid command response!`;
+        }
+        
+        if (commandExists(sanitizedName)) {
             return `@${tags.username}, That command already exists!`;
         }
-        var commandCounter = 0;
-        customCommands[commandName] = [modOnly, commandResponse, commandCounter];
+        
+        const commandCounter = 0;
+        customCommands[sanitizedName] = [modOnly, sanitizedResponse, commandCounter];
 
         try {
-            writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
+            const safePath = path.join(process.env.BOT_FULL_PATH || '.', 'bot-commands', 'custom', `${validatedChannelName}.json`);
+            await writeFileAsync(safePath, JSON.stringify(customCommands, null, 2), 'utf8');
+            console.log(`[CUSTOMC] Command added: ${sanitizedName} by ${tags.username}`);
         } catch (err) {
-            console.error(err);
+            console.error(`[CUSTOMC] Error saving command: ${err.message}`);
+            return `@${tags.username}, Error saving command!`;
         }
 
-        return `@${tags.username}, !${commandName} Command added!`;
+        return `@${tags.username}, !${sanitizedName} Command added!`;
     }
 
-    function removeCommand(commandName) {
-        if (!commandExists(commandName)) {
+    async function removeCommand(commandName) {
+        const sanitizedName = sanitizeCommandName(commandName);
+        
+        if (!sanitizedName || !commandExists(sanitizedName)) {
             return `@${tags.username}, That command doesn't exist!`;
         }
 
-        delete customCommands[commandName];
+        delete customCommands[sanitizedName];
 
         try {
-            writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
+            const safePath = path.join(process.env.BOT_FULL_PATH || '.', 'bot-commands', 'custom', `${validatedChannelName}.json`);
+            await writeFileAsync(safePath, JSON.stringify(customCommands, null, 2), 'utf8');
+            console.log(`[CUSTOMC] Command removed: ${sanitizedName} by ${tags.username}`);
         } catch (err) {
-            console.error(err);
+            console.error(`[CUSTOMC] Error removing command: ${err.message}`);
+            return `@${tags.username}, Error removing command!`;
         }
 
-        return `@${tags.username}, !${commandName} Command removed!`;
+        return `@${tags.username}, !${sanitizedName} Command removed!`;
     }
 
-    // Retrieve the number of times a command has been used
-    // Edit command function that stores the commandName, modOnly, and commandResponse but does not change the number of times it has been used and saves it to the JSON file
-    function editCommand(commandName, modOnly, commandResponse, commandCounter) {
-        if (!commandExists(commandName)) {
+    // Edit command function with security validation
+    async function editCommand(commandName, modOnly, commandResponse, commandCounter, respondToUser = false) {
+        const sanitizedName = sanitizeCommandName(commandName);
+        const sanitizedResponse = sanitizeCommandResponse(commandResponse);
+        
+        if (!sanitizedName || !commandExists(sanitizedName)) {
             return `@${tags.username}, That command does not exist!`;
         }
+        
+        if (!sanitizedResponse || sanitizedResponse.length < 1) {
+            return `@${tags.username}, Invalid command response!`;
+        }
 
-        customCommands[commandName] = [modOnly, commandResponse, commandCounter];
+        customCommands[sanitizedName] = [modOnly, sanitizedResponse, commandCounter];
 
         try {
-            writeFileAsync(`${process.env.BOT_FULL_PATH}/bot-commands/custom/${channel1}.json`, JSON.stringify(customCommands));
+            const safePath = path.join(process.env.BOT_FULL_PATH || '.', 'bot-commands', 'custom', `${validatedChannelName}.json`);
+            await writeFileAsync(safePath, JSON.stringify(customCommands, null, 2), 'utf8');
+            if (respondToUser) {
+                console.log(`[CUSTOMC] Command updated: ${sanitizedName} by ${tags.username}`);
+            }
         } catch (err) {
-            console.error(err);
+            console.error(`[CUSTOMC] Error updating command: ${err.message}`);
+            return `@${tags.username}, Error updating command!`;
         }
 
         // Respond only when called by !ecomm
-        if (input[0] === "!ecomm") {
-            return `@${tags.username}, !${commandName} Command updated!`;
+        if (respondToUser) {
+            return `@${tags.username}, !${sanitizedName} Command updated!`;
         }
+        return null;
     }
-
-    input = message.split(" ");
 
     if (!isModUp && (input[0] === "!acomm" || input[0] === "!ecomm" || input[0] === "!dcomm" || input[0] === "!countcomm")) {
         client.say(channel, `@${tags.username}, Custom Commands are for Moderators & above.`);
@@ -117,190 +211,124 @@ exports.customC = async function customC(client, message, channel, tags) {
     }
 
     if (input[0] === "!acomm") {
-        if (input.length < 2) {
+        if (input.length < 4) {
             client.say(channel, `@${tags.username}, !acomm <modOnly(n/y/v)> <commandName> <commandResponse>`);
             return;
-        } else {
-            var modOnly = input[1].toLowerCase();
-            var commandName = input[2].toLowerCase();
-            var commandResponse = input.slice(3).join(" ");
         }
 
-        // Check if the user is trying to add a command without a name
-        if (commandName === "" || commandName === undefined) {
-            client.say(channel, `@${tags.username}, You need to specify a command name!`);
+        const modOnly = input[1].toLowerCase();
+        const commandName = input[2];
+        const commandResponse = input.slice(3).join(" ");
+
+        // Validate modOnly parameter
+        if (!["n", "y", "v"].includes(modOnly)) {
+            client.say(channel, `@${tags.username}, modOnly must be n/y/v (none/mod/vip)`);
             return;
-        } else {
-            // modOnly check
-            if (modOnly != "n" && modOnly != "y" && modOnly != "v") {
-                client.say(channel, `@${tags.username}, You need to specify whether this is modOnly(n/y/v) command`);
-                return;
-            } else {
-                // Check if the user is trying to add a command without a response
-                if (commandResponse === "" || commandResponse === undefined) {
-                    client.say(channel, `@${tags.username}, You need to specify a response!`);
-                    return;
-                } else {
-                    // Check if the user is trying to add a command with a response that is too long
-                    if (commandResponse.length > 100) {
-                        client.say(channel, `@${tags.username}, Your response is too long!`);
-                        return;
-                    } else {
-                        // Check if the user is trying to add a command with a name that is too long
-                        if (commandName.length > 25) {
-                            client.say(channel, `@${tags.username}, Your command name is too long!`);
-                            return;
-                        } else {
-                            // Check if the user is trying to add a command with a name that is too short
-                            if (commandName.length < 3) {
-                                client.say(channel, `@${tags.username}, Your command name is too short!`);
-                                return;
-                            } else {
-                                // Check if the user is trying to add a command with a name that is not alphanumeric
-                                if (!commandName.match(/^[a-zA-Z0-9]+$/)) {
-                                    client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
-                                    return;
-                                } else {
-                                    const commandCounter = 0;
-                                    // Add the command to the JSON file
-                                    const response = addCommand(commandName, modOnly, commandResponse, commandCounter);
-                                    client.say(channel, response);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
+
+        // Add the command (validation happens inside addCommand)
+        try {
+            const response = await addCommand(commandName, modOnly, commandResponse);
+            client.say(channel, response);
+        } catch (error) {
+            console.error(`[CUSTOMC] Error adding command:`, error.message);
+            client.say(channel, `@${tags.username}, Error adding command!`);
+        }
+        return;
     }
 
 
     if (input[0] === "!ecomm") {
-        if (input.length < 2) {
+        if (input.length < 4) {
             client.say(channel, `@${tags.username}, !ecomm <modOnly(n/y/v)> <commandName> <commandResponse>`);
             return;
-        } else {
-            var modOnly = input[1].toLowerCase();
-            var commandName = input[2].toLowerCase();
-            var commandResponse = input.slice(3).join(" ");
         }
 
-        // Check if the user is trying to edit a command with a name that does not exists
-        if (!commandExists(commandName)) {
-            client.say(channel, `@${tags.username}, That command does not exists!`);
+        const modOnly = input[1].toLowerCase();
+        const commandName = input[2];
+        const commandResponse = input.slice(3).join(" ");
+
+        // Validate modOnly parameter
+        if (!["n", "y", "v"].includes(modOnly)) {
+            client.say(channel, `@${tags.username}, modOnly must be n/y/v (none/mod/vip)`);
             return;
-        } else {
-            // Check if the user is trying to edit a command without a name
-            if (commandName === "" || commandName === undefined) {
-                client.say(channel, `@${tags.username}, You need to specify a command name!`);
-                return;
-            } else {
-                // modOnly check
-                if (modOnly != "n" && modOnly != "y" && modOnly != "v") {
-                    client.say(channel, `@${tags.username}, You need to specify whether this is modOnly(n/y/v) command`);
-                    return;
-                } else {
-                    // Check if the user is trying to edit a command without a response
-                    if (commandResponse === "" || commandResponse === undefined) {
-                        client.say(channel, `@${tags.username}, You need to specify a response!`);
-                        return;
-                    } else {
-                        // Check if the user is trying to edit a command with a response that is too long
-                        if (commandResponse.length > 100) {
-                            client.say(channel, `@${tags.username}, Your response is too long!`);
-                            return;
-                        } else {
-                            // Check if the user is trying to edit a command with a name that is too long
-                            if (commandName.length > 25) {
-                                client.say(channel, `@${tags.username}, Your command name is too long!`);
-                                return;
-                            } else {
-                                // Check if the user is trying to edit a command with a name that is too short
-                                if (commandName.length < 3) {
-                                    client.say(channel, `@${tags.username}, Your command name is too short!`);
-                                    return;
-                                } else {
-                                    // Check if the user is trying to edit a command with a name that is not alphanumeric
-                                    if (!commandName.match(/^[a-zA-Z0-9]+$/)) {
-                                        client.say(channel, `@${tags.username}, Your command name must be alphanumeric!`);
-                                        return;
-                                    } else {
-                                        const commandCounter = customCommands[commandName][2];
-                                        // Edit the command and upload to JSON file
-                                        const response = editCommand(commandName, modOnly, commandResponse, commandCounter);
-                                        client.say(channel, response);
-                                        return;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
+
+        // Check if command exists and get current counter
+        const sanitizedName = sanitizeCommandName(commandName);
+        if (!sanitizedName || !commandExists(sanitizedName)) {
+            client.say(channel, `@${tags.username}, That command does not exist!`);
+            return;
+        }
+
+        const commandCounter = customCommands[sanitizedName][2];
+
+        // Edit the command (validation happens inside editCommand)
+        try {
+            const response = await editCommand(sanitizedName, modOnly, commandResponse, commandCounter, true);
+            if (response) {
+                client.say(channel, response);
+            }
+        } catch (error) {
+            console.error(`[CUSTOMC] Error editing command:`, error.message);
+            client.say(channel, `@${tags.username}, Error editing command!`);
+        }
+        return;
     }
 
     if (input[0] === "!dcomm") {
         if (input.length < 2) {
             client.say(channel, `@${tags.username}, !dcomm <commandName>`);
             return;
-        } else {
-            var commandName = input[1].toLowerCase();
         }
 
-        // Check if the user is trying to remove a command that doesn't exist
-        if (!commandExists(commandName)) {
-            client.say(channel, `@${tags.username}, That command doesn't exist!`);
-            return;
-        } else {
-            // Remove the command from the JSON file
-            const response = removeCommand(commandName);
+        const commandName = input[1];
+
+        // Remove the command (validation happens inside removeCommand)
+        try {
+            const response = await removeCommand(commandName);
             client.say(channel, response);
-            return;
+        } catch (error) {
+            console.error(`[CUSTOMC] Error removing command:`, error.message);
+            client.say(channel, `@${tags.username}, Error removing command!`);
         }
+        return;
     }
 
-    // Create command to update commandCounter
+    // Update command counter
     if (input[0] === "!countcomm") {
-        if (input.length < 2) {
+        if (input.length < 3) {
             client.say(channel, `@${tags.username}, !countcomm <commandName> <commandCounter>`);
             return;
-        } else {
-            var commandName = input[1].toLowerCase();
-            var commandCounterNew = Number(input[2]);
         }
 
-        // Check if the user is trying to update a command without a name
-        if (commandName === "" || commandName === undefined) {
-            client.say(channel, `@${tags.username}, You need to specify a command name!`);
+        const commandName = input[1];
+        const commandCounterNew = Number(input[2]);
+
+        // Validate inputs
+        if (!Number.isInteger(commandCounterNew) || commandCounterNew < 0) {
+            client.say(channel, `@${tags.username}, Counter must be a positive integer!`);
             return;
-        } else {
-            // Check if the user is trying to update a command without a counter
-            if (commandCounterNew === "" || commandCounterNew === undefined) {
-                client.say(channel, `@${tags.username}, You need to specify a counter!`);
-                return;
-            } else {
-                // Check if the user is trying to update a command with a counter that is not a full integer
-                if (!Number.isInteger(commandCounterNew)) {
-                    client.say(channel, `@${tags.username}, Your counter must be a number!`);
-                    return;
-                } else {
-                    // Check if the user is trying to update a command that doesn't exist
-                    if (!commandExists(commandName)) {
-                        client.say(channel, `@${tags.username}, That command doesn't exist!`);
-                        return;
-                    } else {
-                        const modOnly = customCommands[commandName][0];
-                        const commandResponse = customCommands[commandName][1];
-                        // Update the commandCounter
-                        editCommand(commandName, modOnly, commandResponse, commandCounterNew);
-                        client.say(channel, `@${tags.username}, Counter updated!`);
-                        return;
-                    }
-                }
-            }
         }
+
+        const sanitizedName = sanitizeCommandName(commandName);
+        if (!sanitizedName || !commandExists(sanitizedName)) {
+            client.say(channel, `@${tags.username}, That command doesn't exist!`);
+            return;
+        }
+
+        const modOnly = customCommands[sanitizedName][0];
+        const commandResponse = customCommands[sanitizedName][1];
+
+        // Update the commandCounter
+        try {
+            await editCommand(sanitizedName, modOnly, commandResponse, commandCounterNew, false);
+            client.say(channel, `@${tags.username}, Counter updated to ${commandCounterNew}!`);
+        } catch (error) {
+            console.error(`[CUSTOMC] Error updating counter:`, error.message);
+            client.say(channel, `@${tags.username}, Error updating counter!`);
+        }
+        return;
     }
 
     if (input[0] === "!lcomm") {
@@ -317,74 +345,68 @@ exports.customC = async function customC(client, message, channel, tags) {
         }
     }
     // Check if the user is trying to call a custom command
-    // Get the number of times the command has been called and add 1
     if (commandExists(input[0].substring(1)) && input[0].startsWith('!')) {
-        // Get the command value for the custom command
-        commandName = commandExists(input[0].substring(1));
-        modOnly = customCommands[input[0].substring(1)][0];
-        commandResponse = customCommands[input[0].substring(1)][1];
+        const commandName = input[0].substring(1);
+        const commandData = customCommands[commandName];
+        const modOnly = commandData[0];
+        const commandResponse = commandData[1];
+        const commandCounter = commandData[2];
+        const commandCounterNew = commandCounter + 1;
 
-        commandCounter = customCommands[input[0].substring(1)][2];
-        commandCounterNew = commandCounter + 1;
+        // Update the JSON file with the new counter value (async, don't wait)
+        editCommand(commandName, modOnly, commandResponse, commandCounterNew, false).catch(err => {
+            console.error(`[CUSTOMC] Error updating counter for ${commandName}:`, err.message);
+        });
 
-        // Update the JSON file with the new counter value
-        editCommand(input[0].substring(1), modOnly, commandResponse, commandCounterNew);
-
-        // Variables for the custom command responses
-        var response = customCommands[input[0].substring(1)][1];
+        // Process command response with variable substitution (securely)
+        let response = sanitizeCommandResponse(commandResponse);
+        
+        // Replace variables with sanitized values
         if (response.includes("$counter")) {
-            response = response.replace("$counter", commandCounterNew);
+            response = response.replace(/\$counter/g, commandCounterNew.toString());
         }
         if (response.includes("$user1")) {
-            response = response.replace("$user1", `${tags.username}`);
+            response = response.replace(/\$user1/g, tags.username);
         }
-        // search for user starting with @ in the message then assign it to $user2
+        
+        // Safe user2 extraction
+        let user2 = tags.username; // Default to command user
         if (response.includes("$user2")) {
             if (message.includes("@")) {
-                var user2 = message.split("@")[1].split(" ")[0];
-                response = response.replace("$user2", "@" + user2);
-            } else {
-                var user2 = `${tags.username}`;
-                response = response.replace("$user2", `@${tags.username}`);
+                const mentionMatch = message.match(/@([a-zA-Z0-9_]{1,25})/);
+                if (mentionMatch) {
+                    user2 = mentionMatch[1];
+                }
             }
+            response = response.replace(/\$user2/g, `@${user2}`);
         }
+        
         if (response.includes("$percentage")) {
-            response = response.replace("$percentage", `${Math.floor(Math.random() * 100)}%`);
+            response = response.replace(/\$percentage/g, `${Math.floor(Math.random() * 100)}%`);
         }
+        
         if (response.includes("$streamerp")) {
-            console.log("user2 is " + user2);
-            console.log("channel1 is " + channel1);
-            if (user2.toLowerCase() == channel1) {
-                // Generate a random number between 100 and 10,000,000
-                let randomPercentage = Math.floor(Math.random() * (10000000 - 100 + 1)) + 100;
-                response = response.replace("$streamerp", `${randomPercentage}%`);
+            if (user2.toLowerCase() === validatedChannelName.toLowerCase()) {
+                // Generate a random number between 100 and 10,000,000 for streamer
+                const randomPercentage = Math.floor(Math.random() * (10000000 - 100 + 1)) + 100;
+                response = response.replace(/\$streamerp/g, `${randomPercentage}%`);
             } else {
-                response = response.replace("$streamerp", `${Math.floor(Math.random() * 100)}%`);
+                response = response.replace(/\$streamerp/g, `${Math.floor(Math.random() * 100)}%`);
             }
         }
+        
         if (response.includes("$ynm")) {
             const yesNoMaybe = ["Yes", "No", "Maybe"];
-            response = response.replace("$ynm", yesNoMaybe[Math.floor(Math.random() * yesNoMaybe.length)]);
+            response = response.replace(/\$ynm/g, yesNoMaybe[Math.floor(Math.random() * yesNoMaybe.length)]);
         }
 
-        // Check if the command is modOnly and the user is not a mod
-        if (modOnly === "y") {
-            if (isModUp) {
-                client.say(channel, response);
-                return;
-            } else {
-                //client.say(channel, `@${tags.username}, This command is modOnly!`);
-                return;
-            }
-        } else if (modOnly === "v") {
-            if (isVIPUp) {
-                client.say(channel, response);
-                return;
-            } else {
-                //client.say(channel, `@${tags.username}, This command is modOnly!`);
-                return;
-            }
-        } else if (modOnly === "n") {
+        // Check permissions and execute command
+        if (modOnly === "y" && !isModUp) {
+            return; // Silently ignore for mod-only commands
+        } else if (modOnly === "v" && !isVIPUp) {
+            return; // Silently ignore for VIP+ commands
+        } else {
+            // Execute the command
             client.say(channel, response);
             return;
         }

@@ -14,6 +14,65 @@
 // API Google Translate
 const gtrans = require('googletrans').default;
 
+// Rate limiting map to track user requests
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 60000; // 60 seconds
+const MAX_REQUESTS = 5; // Max 5 translation requests per minute
+
+// Rate limiting check
+function checkRateLimit(username) {
+    const now = Date.now();
+    const userRequests = rateLimitMap.get(username) || [];
+    
+    // Remove old requests outside the window
+    const validRequests = userRequests.filter(timestamp => now - timestamp < RATE_LIMIT_WINDOW);
+    
+    if (validRequests.length >= MAX_REQUESTS) {
+        return false; // Rate limited
+    }
+    
+    validRequests.push(now);
+    rateLimitMap.set(username, validRequests);
+    return true; // Not rate limited
+}
+
+// Input sanitization for translation text
+function sanitizeTranslationText(text) {
+    if (!text || typeof text !== 'string') return '';
+    
+    // Remove potentially harmful characters and limit length
+    const cleaned = text.replace(/[<>'"&]/g, '').trim();
+    return cleaned.substring(0, 200); // Max 200 characters
+}
+
+// Validate language code against known codes
+function isValidLanguageCode(code) {
+    if (!code || typeof code !== 'string') return false;
+    
+    // Only allow alphanumeric characters and hyphens, max 10 chars
+    const cleanCode = code.replace(/[^a-zA-Z0-9-]/g, '');
+    return cleanCode.length > 0 && cleanCode.length <= 10 && tr_lang.hasOwnProperty(cleanCode);
+}
+
+// Safe translation with timeout
+async function safeTranslate(text, options, timeoutMs = 8000) {
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            reject(new Error('Translation timeout'));
+        }, timeoutMs);
+        
+        gtrans(text, options)
+            .then(result => {
+                clearTimeout(timeout);
+                resolve(result);
+            })
+            .catch(error => {
+                clearTimeout(timeout);
+                reject(error);
+            });
+    });
+}
+
 const tr_lang = {
     'de': ['de', 'sagt'],
     'en': ['en', 'says'],
@@ -128,96 +187,131 @@ const tr_lang = {
 exports.translate = async function translate(client, message, channel, tags) {
     try {
         // Remove whitespace from chat message
-        let tMsg = message.trim();
-
-        // Check if the message starts with @name
-        // in that case, extract the name and move the @name at the end of the message, and process
-        if (tMsg[0] === '@') {
-            let atnameEndIndex = tMsg.indexOf(' ');
-            let atname = tMsg.substring(0, atnameEndIndex);
-            let message = tMsg.substring(atnameEndIndex + 1);
-            tMsg = message + ' ' + atname;
-            // console.info('Changed message :', tMsg);
-        }
+        const tMsg = message.trim();
 
         // Filter commands (options)
-        if (tMsg[0] != '!') return;
+        if (tMsg[0] !== '!') return;
 
         // Extract command
-        let cmd = tMsg.split(' ')[0].substring(1).toLowerCase();
+        const cmd = tMsg.split(' ')[0].substring(1).toLowerCase();
 
-        // Name for answering
-        let answername = '@' + `${tags.username}`;
+        // Check rate limiting for translation commands
+        if (isValidLanguageCode(cmd)) {
+            if (!checkRateLimit(tags.username)) {
+                client.say(channel, `@${tags.username}, please wait before making more translation requests.`);
+                return;
+            }
+        }
 
         // Command for displaying the commands (in english)
         if (cmd === "lang" || cmd === "translate") {
-            client.say(channel, 'I can (approximatevely) translate your messages in many languages. Simply start your message with one of the language short codes as per https://raw.githubusercontent.com/DarinRowe/googletrans/2cb2ef1eaa5dc2b5cf7492e69ad96d8ed40ea656/src/languages.ts');
+            client.say(channel, `@${tags.username}, I can translate your messages in many languages. Use !<language_code> <text> (e.g., !en Bonjour). Supported codes: en, de, fr, es, pt, ja, zh, ko, etc.`);
             return;
         }
 
         // Commands for displaying messages explaining the translation feature in various languages
-        // TODO: sentences
         const explanations = {
             'english': 'You can use our Translator Bot. Start your message by typing !en To translate your message into English. For example: "!en Bonjour"',
-        }
+        };
+        
         if (cmd in explanations) {
-            client.say(channel, explanations[cmd]);
+            client.say(channel, `@${tags.username}, ${explanations[cmd]}`);
             return;
         }
 
-        if (cmd in tr_lang && tMsg[0] == '!') {
-            var ll = tr_lang[cmd];
-            //console.error(ll);
-            var txt = tMsg.substring(1 + cmd.length);
-
-            // Text must be at least 2 characters and max 200 characters
-            var lazy = false;
-            if (txt.length > 2) {
-                if (txt.length > 200) {
-                    lazy = true;
-                    txt = "i'm too lazy to translate long sentences ^^";
-                }
-
-                // Lazy mode, and english target => no translation, only displays 'lazy' message in english
-                if ((lazy === true) && (ll[0].indexOf('en') == 0)) {
-                    say(channel, `${tags.username}` + ', ' + txt);
-                    return;
-                }
-
-                // Translate text
-                gtrans(txt, { to: ll[0] }).then(res => {
-                    // Tweak to add pinyin to display chinese pronunciation + english translation
-                    if (cmd == 'pinyin') {
-                        gtrans(txt, { to: 'en' }).then(enres => {
-                            client.say(channel, `${tags.username}` + '| pinyin: ' + res.pronunciation + ' | english: ' + enres.text);
-                        }).catch(err => {
-                            console.error('Translation Error:', err);
-                        })
-                    }
-                    // Tweak to add romaji to display japanese pronunciation + english translation
-                    else if (cmd == 'romaji') {
-                        gtrans(txt, { to: 'en' }).then(enres => {
-                            client.say(channel, `${tags.username}` + '| romaji: ' + res.pronunciation + ' | english: ' + enres.text);
-                        }).catch(err => {
-                            console.error('Translation Error:', err);
-                        })
-                    } else if (lazy === true) {
-                        // lazy mode sentence in english and also in requested language
-                        client.say(channel, `${tags.username}` + ', ' + txt + '/' + res.text);
-                    }
-                    else {
-                        // Translation
-                        // TODO: Check is translated text == original text. In that case it
-                        // means the command was not correctly used (ex: "!en hello friends")
-                        client.say(channel, `${tags.username}` + ' ' + ll[1] + ': ' + res.pronunciation + ': ' + res.text);
-                    }
-                }).catch(err => {
-                    console.error('Translation Error:', err);
-                })
-            }
+        // Validate language code
+        if (!isValidLanguageCode(cmd)) {
+            return; // Silently ignore invalid language codes
         }
+
+        const ll = tr_lang[cmd];
+        let txt = tMsg.substring(1 + cmd.length).trim();
+
+        // Sanitize input text
+        txt = sanitizeTranslationText(txt);
+
+        // Text must be at least 2 characters
+        if (txt.length < 2) {
+            client.say(channel, `@${tags.username}, please provide text to translate (minimum 2 characters).`);
+            return;
+        }
+
+        // Handle long text with lazy mode
+        let lazy = false;
+        if (txt.length > 150) {
+            lazy = true;
+            txt = "Text too long - please use shorter messages for translation";
+        }
+
+        // Lazy mode, and english target => no translation, only displays 'lazy' message in english
+        if (lazy === true && ll[0].indexOf('en') === 0) {
+            client.say(channel, `@${tags.username}, ${txt}`);
+            return;
+        }
+
+        try {
+            // Translate text with timeout protection
+            const res = await safeTranslate(txt, { to: ll[0] });
+
+            if (cmd === 'pinyin') {
+                // Special handling for pinyin
+                try {
+                    const enres = await safeTranslate(txt, { to: 'en' });
+                    const pronunciation = res.pronunciation || 'N/A';
+                    const translation = enres.text || 'N/A';
+                    client.say(channel, `@${tags.username} | pinyin: ${pronunciation} | english: ${translation}`);
+                } catch (error) {
+                    console.error(`[TRANSLATE] Pinyin translation error for user ${tags.username}:`, {
+                        message: error.message,
+                        timestamp: new Date().toISOString()
+                    });
+                    client.say(channel, `@${tags.username}, translation service temporarily unavailable.`);
+                }
+            } else if (cmd === 'romaji') {
+                // Special handling for romaji
+                try {
+                    const enres = await safeTranslate(txt, { to: 'en' });
+                    const pronunciation = res.pronunciation || 'N/A';
+                    const translation = enres.text || 'N/A';
+                    client.say(channel, `@${tags.username} | romaji: ${pronunciation} | english: ${translation}`);
+                } catch (error) {
+                    console.error(`[TRANSLATE] Romaji translation error for user ${tags.username}:`, {
+                        message: error.message,
+                        timestamp: new Date().toISOString()
+                    });
+                    client.say(channel, `@${tags.username}, translation service temporarily unavailable.`);
+                }
+            } else if (lazy === true) {
+                // Lazy mode sentence in english and also in requested language
+                const translation = res.text || 'Translation unavailable';
+                client.say(channel, `@${tags.username}, ${txt} / ${translation}`);
+            } else {
+                // Normal translation
+                const pronunciation = res.pronunciation || '';
+                const translation = res.text || 'Translation unavailable';
+                const connector = ll[1] || 'says';
+                
+                if (pronunciation && pronunciation !== translation) {
+                    client.say(channel, `@${tags.username} ${connector}: ${pronunciation}: ${translation}`);
+                } else {
+                    client.say(channel, `@${tags.username} ${connector}: ${translation}`);
+                }
+            }
+
+        } catch (error) {
+            console.error(`[TRANSLATE] Translation error for user ${tags.username}:`, {
+                message: error.message,
+                language: cmd,
+                timestamp: new Date().toISOString()
+            });
+            client.say(channel, `@${tags.username}, translation service temporarily unavailable.`);
+        }
+
+    } catch (error) {
+        console.error(`[TRANSLATE] Error for user ${tags.username}:`, {
+            message: error.message,
+            timestamp: new Date().toISOString()
+        });
+        client.say(channel, `@${tags.username}, translation service encountered an error.`);
     }
-    catch (e) {
-        console.error(e.stack);
-    }
-}
+};

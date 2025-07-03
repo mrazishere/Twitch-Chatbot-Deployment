@@ -16,17 +16,46 @@
 
 const fetch = require('node-fetch');  // import the fetch function
 
+// Rate limiting map to track user requests
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 30000; // 30 seconds
+const MAX_REQUESTS = 3; // Max 3 requests per 30 seconds
+
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Rate limiting check
+function checkRateLimit(username) {
+  const now = Date.now();
+  const userRequests = rateLimitMap.get(username) || [];
+  
+  // Remove old requests outside the window
+  const validRequests = userRequests.filter(timestamp => now - timestamp < RATE_LIMIT_WINDOW);
+  
+  if (validRequests.length >= MAX_REQUESTS) {
+    return false; // Rate limited
+  }
+  
+  validRequests.push(now);
+  rateLimitMap.set(username, validRequests);
+  return true; // Not rate limited
+}
+
 exports.catfacts = async function catfacts(client, message, channel, tags) {
-  input = message.split(" ");
+  const input = message.split(" ");
   if (input[0] === "!catfacts") {
+    // Check rate limiting
+    if (!checkRateLimit(tags.username)) {
+      client.say(channel, `@${tags.username}, please wait before requesting more cat facts.`);
+      return;
+    }
+    
     try {
       const response = await fetch('https://meowfacts.herokuapp.com/', {
         method: 'GET',
-        headers: { 'accept': 'application/json', 'content-type': 'application/json' }
+        headers: { 'accept': 'application/json', 'content-type': 'application/json' },
+        timeout: 5000 // 5 second timeout
       });
 
       if (response.ok) {
@@ -44,7 +73,10 @@ exports.catfacts = async function catfacts(client, message, channel, tags) {
         client.say(channel, "Sorry, API is unavailable right now. Please try again later.");
       }
     } catch (error) {
-      console.log(error);
+      console.error(`[CATFACTS] Error for user ${tags.username}:`, {
+        message: error.message,
+        timestamp: new Date().toISOString()
+      });
       client.say(channel, "Sorry, there was an error getting cat facts.");
     }
     return;
