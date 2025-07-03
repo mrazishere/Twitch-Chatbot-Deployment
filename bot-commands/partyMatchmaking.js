@@ -31,11 +31,48 @@
 
 const fs = require('fs');
 
+// Rate limiting map to track user requests
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 30000; // 30 seconds
+const MAX_REQUESTS = 10; // Max 10 matchmaking actions per 30 seconds
+
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-var matchmaking_list = new Map();
+// Rate limiting check
+function checkRateLimit(username) {
+  const now = Date.now();
+  const userRequests = rateLimitMap.get(username) || [];
+  
+  // Remove old requests outside the window
+  const validRequests = userRequests.filter(timestamp => now - timestamp < RATE_LIMIT_WINDOW);
+  
+  if (validRequests.length >= MAX_REQUESTS) {
+    return false; // Rate limited
+  }
+  
+  validRequests.push(now);
+  rateLimitMap.set(username, validRequests);
+  return true; // Not rate limited
+}
+
+// Input validation for team size
+function validateTeamSize(size) {
+  const parsed = parseInt(size, 10);
+  return !isNaN(parsed) && parsed >= 1 && parsed <= 4 ? parsed : null;
+}
+
+// Input sanitization for username
+function sanitizeUsername(username) {
+  if (!username || typeof username !== 'string') return '';
+  
+  // Remove potentially harmful characters, keep basic Twitch username format
+  const cleaned = username.replace(/[^a-zA-Z0-9_@]/g, '').trim();
+  return cleaned.substring(0, 25); // Max 25 characters for Twitch usernames
+}
+
+const matchmaking_list = new Map();
 // Team object
 const Team = require(`${process.env.BOT_FULL_PATH}/classes/team.js`);
 const Matchmaking = require(`${process.env.BOT_FULL_PATH}/classes/matchmaking.js`);
@@ -44,11 +81,14 @@ exports.readMatchmakingFile = async function readMatchmakingFile() {
   try {
     const data = await fs.promises.readFile(`${process.env.BOT_FULL_PATH}/matchmaking.json`, 'utf8');
     const rawMatchmaking = JSON.parse(data);
-    for (var details in rawMatchmaking) {
+    for (const details in rawMatchmaking) {
       matchmaking_list.set(details, Object.assign(new Matchmaking(), rawMatchmaking[details]));
     }
   } catch (error) {
-    console.error(error);
+    console.error('[MATCHMAKING] Error reading matchmaking file:', {
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
 }
 
@@ -58,254 +98,265 @@ exports.partyMatchmaking = async function partyMatchmaking(client, message, chan
   const isBroadcaster = badges.broadcaster || tags.isBroadcaster;
   const isMod = badges.moderator || tags.isMod;
   const isVIP = badges.vip || tags.isVip;
-  const isModUp = isBroadcaster || isMod || tags.username == `${process.env.TWITCH_OWNER}`;
+  const isModUp = isBroadcaster || isMod || tags.username === `${process.env.TWITCH_OWNER}`;
   const isVIPUp = isVIP || isModUp;
   const channel1 = channel.substring(1); //channel name (i.e. username)
 
-  input = message.split(" ");
-  if (input[0] === "!mm") {
-    var partyCommand = input[1];
-    var partyCommand2 = input[2];
+  const input = message.split(" ");
+  
+  if (input[0] !== "!mm") {
+    return;
+  }
+
+  // Check rate limiting
+  if (!checkRateLimit(tags.username)) {
+    client.say(channel, `@${tags.username}, please wait before making more matchmaking requests.`);
+    return;
+  }
+
+  try {
+    const partyCommand = input[1];
+    const partyCommand2 = input[2];
+    
     // Function to update mmList into global matchmaking list
-    // Update as at 13 July 2022 by Rained
     async function updateMmList(mmList) {
-      updMm = matchmaking_list.get(channel1);
-      updMm.setMmList(mmList);
-      matchmaking_list.set(channel1, updMm);
+      const updMm = matchmaking_list.get(channel1);
+      if (updMm) {
+        updMm.setMmList(mmList);
+        matchmaking_list.set(channel1, updMm);
+      }
     }
 
     // Function to update mmInfo into global matchmaking list
-    // Update as at 13 July 2022 by Rained
     async function updateMmInfo(mmInfo) {
-      updTeams = matchmaking_list.get(channel1);
-      updTeams.clearTeams();
-      updTeams.setTeams(mmInfo);
-      matchmaking_list.set(channel1, updTeams);
+      const updTeams = matchmaking_list.get(channel1);
+      if (updTeams) {
+        updTeams.clearTeams();
+        updTeams.setTeams(mmInfo);
+        matchmaking_list.set(channel1, updTeams);
+      }
     }
 
+    // Safe file writing with async/await
     async function writeToMatchmakingFile() {
-      const data = JSON.stringify(Object.fromEntries(matchmaking_list), null, "\t");
-      fs.writeFile(`${process.env.BOT_FULL_PATH}/matchmaking.json`, data, (err) => {
-        if (err) {
-          throw err;
-        }
-        console.log("Matchmaking JSON data is updated and written to file.");
-      });
+      try {
+        const data = JSON.stringify(Object.fromEntries(matchmaking_list), null, "\t");
+        await fs.promises.writeFile(`${process.env.BOT_FULL_PATH}/matchmaking.json`, data, 'utf8');
+        console.log('[MATCHMAKING] Data written to file successfully');
+      } catch (error) {
+        console.error('[MATCHMAKING] Error writing file:', {
+          message: error.message,
+          timestamp: new Date().toISOString()
+        });
+        throw error;
+      }
     }
 
+    // Moderator commands
     if (isModUp) {
-      if (partyCommand == "enable") {
+      if (partyCommand === "enable") {
         // Save matchmaking teams data into matchmaking.json
-        // Update as at 13 July 2022 by Rained/MrAz
-        if (matchmaking_list.has(channel1)) { //Foolproof checks to retrieve existing object and change status to true
+        let mmObject;
+        if (matchmaking_list.has(channel1)) {
           mmObject = matchmaking_list.get(channel1);
-          if (mmObject.getStatus() == true) {
-            client.say(channel, "Already enabled, '!mm disable' to disable matchmaking function");
+          if (mmObject.getStatus() === true) {
+            client.say(channel, `@${tags.username}, already enabled. Use '!mm disable' to disable matchmaking function.`);
             return;
           } else {
             mmObject.setStatus(true);
-            client.say(channel, "Matchmaking function is now enabled. Send '!mm join' to join matchmaking.");
+            client.say(channel, `@${tags.username}, matchmaking function is now enabled. Send '!mm join' to join matchmaking.`);
           }
-        } else { //This should only be run once AFTER the user uses !mm enable FOR THE VERY FIRST TIME
+        } else {
           mmObject = new Matchmaking(true, [], []);
-          client.say(channel, "Matchmaking function is now enabled. Send '!mm join' to join matchmaking.");
+          client.say(channel, `@${tags.username}, matchmaking function is now enabled. Send '!mm join' to join matchmaking.`);
         }
         matchmaking_list.set(channel1, mmObject);
-        writeToMatchmakingFile();
-
+        await writeToMatchmakingFile();
+        return;
       }
-      if (partyCommand == "disable") {
-        if (matchmaking_list.has(channel1)) { //Foolproof checks to retrieve existing object and change status to true
-          mmObject = matchmaking_list.get(channel1);
-          if (mmObject.getStatus() == false) {
-            client.say(channel, "Already disabled, Broadcasters can send '!mm enable' to enable matchmaking function");
+      
+      if (partyCommand === "disable") {
+        if (matchmaking_list.has(channel1)) {
+          const mmObject = matchmaking_list.get(channel1);
+          if (mmObject.getStatus() === false) {
+            client.say(channel, `@${tags.username}, already disabled. Broadcasters can send '!mm enable' to enable matchmaking function.`);
             return;
           } else {
             mmObject.setStatus(false);
+            matchmaking_list.set(channel1, mmObject);
           }
         }
-        matchmaking_list.set(channel1, mmObject);
-        writeToMatchmakingFile();
-        client.say(channel, "Matchmaking function is now disabled. Broadcasters can send '!mm enable' to enable the matchmaking function.");
-        return;
-
-      }
-      if (partyCommand == "clear") {
-        clearedMm = Object.assign(new Matchmaking(), matchmaking_list.get(channel1));
-        clearedMm.clearMmList();
-        clearedMm.clearTeams();
-        matchmaking_list.set(channel1, clearedMm);
-        writeToMatchmakingFile();
-        client.say(channel, "Matchmaking list has been cleared.");
+        await writeToMatchmakingFile();
+        client.say(channel, `@${tags.username}, matchmaking function is now disabled.`);
         return;
       }
-      if (partyCommand == "random" && !isNaN(partyCommand2) && partyCommand2 <= 4) {
-        randomMm = matchmaking_list.get(channel1);
-        var partyTotal = randomMm.mmList.length;
-        var partyOrder = randomMm.mmList.slice();
-        var partyRandom = partyOrder.sort(() => Math.random() - 0.5);
-        var countP = 1;
-        randomMmNewTeams = [];
-        while (partyRandom.length) {
-          var partyRandomQ = partyRandom.splice(0, partyCommand2);
-          var teamInfo = new Team(countP, partyCommand2, partyRandomQ);
-          randomMmNewTeams.push(teamInfo);
-          client.say(channel, "Team #" + teamInfo.number + ": " + teamInfo.members);
-          sleep(1000);
-          countP++;
-        }
-        console.log("JSON BEFORE CALLING ANYTHING: " + JSON.stringify(Object.fromEntries(matchmaking_list)));
-        // Update as at 13 July 2022 by Rained
-        updateMmInfo(randomMmNewTeams);
-        sleep(5000);
-        writeToMatchmakingFile();
-        return;
-      }
-      if (partyCommand == "info") {
+      
+      if (partyCommand === "clear") {
         if (matchmaking_list.has(channel1)) {
-          showTeamsInfo = matchmaking_list.get(channel1).teams;
-          if (showTeamsInfo.length > 0) {
-            for (i = 0; i < showTeamsInfo.length; i++) {
-              showTeamsInfo[i] = Object.assign(new Team(), showTeamsInfo[i]);
-              client.say(channel, "Team #" + showTeamsInfo[i].number + ": " + showTeamsInfo[i].members);
-            }
-            console.log(showTeamsInfo);
-          }
+          const clearedMm = Object.assign(new Matchmaking(), matchmaking_list.get(channel1));
+          clearedMm.clearMmList();
+          clearedMm.clearTeams();
+          matchmaking_list.set(channel1, clearedMm);
+          await writeToMatchmakingFile();
+          client.say(channel, `@${tags.username}, matchmaking list has been cleared.`);
+        } else {
+          client.say(channel, `@${tags.username}, no matchmaking data to clear.`);
         }
+        return;
       }
-    }
-
-    if (input.length > 3) {
-      client.say(channel, `@${tags.username}, Invalid use of command, '!mm' to check current matchmaking list`);
-      return;
-    } else {
-      /* JSON TEST START */
-      if (matchmaking_list.has(channel1)) {
-        mmObject = matchmaking_list.get(channel1);
-        var partyStatus = mmObject.getStatus();
-        var partyTotal = mmObject.mmList.length;
-        var partyOrder = mmObject.mmList.slice();
-        if (partyStatus == true) {
-          if (input.length == 1) {
-            if (partyTotal > 0) {
-              client.say(channel, "Total: " + partyTotal + " players; List: " + partyOrder);
-              return;
-            } else {
-              client.say(channel, "Current matchmaking list is empty.");
-              return;
-            }
-          } else {
-            if (partyCommand == "join") {
-              var addUser = `@${tags.username}`;
-              if (isModUp && input.length == 3) {
-                addUser = input[2].toLowerCase();
-              }
-              if (partyOrder.includes(addUser)) {
-                client.say(channel, addUser + " is already in the matchmaking list. Send '!mm unjoin' to remove from matchmaking.");
-                return;
-              } else {
-                existingTeamsInfo = mmObject.teams.slice();
-                //If teams info of channel exists, check if possible to join existing team, and if not possible, create new team for user
-                if (existingTeamsInfo.length > 0) {
-                  var added = false; //Flag to check if user has been successfully added into a team
-                  for (var i = 0; i < existingTeamsInfo.length; i++) {
-                    if (existingTeamsInfo[i].members.length < existingTeamsInfo[i].size) { //Check if team's array size is lesser than allocated size
-                      existingTeamsInfo[i].members.push(addUser); //Add user to team
-                      added = true;
-                      break; //Force exit for-loop when this is completed
-                    }
-                  }
-                  if (added == false) { //If user not successfully added to existing team, create new team
-                    var newTeamMembers = [];
-                    newTeamMembers.push(addUser);
-                    let newTeamInfo = new Team(existingTeamsInfo.length + 1, existingTeamsInfo[0].size, newTeamMembers);
-                    existingTeamsInfo.push(newTeamInfo);
-                  }
-                }
-
-                // Update as at 13 July 2022 by Rained
-                partyOrder.push(addUser);
-                updateMmList(partyOrder);
-                client.say(channel, addUser + " has joined matchmaking. Send '!mm unjoin' to remove from matchmaking.");
-                updateMmInfo(existingTeamsInfo);
-                writeToMatchmakingFile();
-              }
-            }
-            if (partyCommand == "unjoin") {
-              var removeUser = `@${tags.username}`;
-              if (isModUp && input.length == 3) {
-                removeUser = input[2].toLowerCase();
-              }
-              if (partyOrder.includes(removeUser)) {
-                //Remove user from existing teams info of channel
-                unjoinedTeamsInfo = matchmaking_list.get(channel1).teams.slice();
-                for (var i = 0; i < unjoinedTeamsInfo.length; i++) {
-                  if (unjoinedTeamsInfo[i].members.includes(removeUser)) {
-                    var index = unjoinedTeamsInfo[i].members.indexOf(removeUser); //Retrieve array index of user to be removed
-                    unjoinedTeamsInfo[i].members.splice(index, 1); //Remove user at the index, 1 occurrence
-                    break; //Force exit for-loop when this is completed
-                  }
-                }
-
-                removeIndex = partyOrder.indexOf(removeUser);
-                if (removeIndex > -1) {
-                  partyOrder.splice(removeIndex, 1);
-                }
-                updateMmList(partyOrder);
-                client.say(channel, removeUser + " has been removed from matchmaking list. Send '!mm join' to join matchmaking.");
-
-                //Check if teams can be merged; require double for-loops
-                for (var i = 0; i < unjoinedTeamsInfo.length; i++) {
-                  unjoinedTeamsInfo[i].number = i + 1;
-                  //Check if first team to use as comparison is not full; recursively check after merging
-                  while (unjoinedTeamsInfo[i].members.length < unjoinedTeamsInfo[i].size) {
-                    var j = 0;
-                    for (j = 0; j < unjoinedTeamsInfo.length; j++) {
-                      //Check THREE conditions
-                      //- If second team is also not full
-                      //- If second team is not first team
-                      //- If sum of lengths of arrays of first and second team are less than or equal to fixed size
-                      if ((unjoinedTeamsInfo[j].members.length < unjoinedTeamsInfo[j].size) && (j != i) && (unjoinedTeamsInfo[i].members.length + unjoinedTeamsInfo[j].members.length <= unjoinedTeamsInfo[i].size)) {
-                        //Execute team merging
-                        //Concat members of second team into first team
-                        unjoinedTeamsInfo[i].members = unjoinedTeamsInfo[i].members.concat(unjoinedTeamsInfo[j].members);
-                        //Destroy second team
-                        unjoinedTeamsInfo.splice(j, 1);
-                        //Restart loop
-                        j = 0
-                      }
-                    }
-                    //Force break if teams are unmergable with compared
-                    if (j != 0) break;
-                  }
-
-                  //Foolproof check to delete empty teams (idk why got empty teams leymao)
-                  if (unjoinedTeamsInfo[i].members.length == 0) {
-                    unjoinedTeamsInfo.splice(i, 1);
-                  }
-                }
-
-                //Update if mmInfo exists (i.e. player unjoined after random has been called)
-                // Update as at 13 July 2022 by Rained
-                if (unjoinedTeamsInfo.length > 0)
-                  updateMmInfo(unjoinedTeamsInfo);
-
-              } else {
-                client.say(channel, removeUser + " is already removed from matchmaking list. Send '!mm join' to join matchmaking.");
-                return;
-              }
-              writeToMatchmakingFile();
-            }
-          }
-        } else if (input.length == 1) {
-          client.say(channel, "Matchmaking function is not enabled. Broadcasters can send '!mm enable' to enable the matchmaking function.");
+      
+      if (partyCommand === "random") {
+        const teamSize = validateTeamSize(partyCommand2);
+        if (!teamSize) {
+          client.say(channel, `@${tags.username}, invalid team size. Please use 1-4.`);
           return;
         }
-      } else {
-        client.say(channel, "Matchmaking function is not enabled. Broadcasters can send '!mm enable' to enable the matchmaking function.");
+        
+        if (!matchmaking_list.has(channel1)) {
+          client.say(channel, `@${tags.username}, no matchmaking data found.`);
+          return;
+        }
+        
+        const randomMm = matchmaking_list.get(channel1);
+        const partyTotal = randomMm.mmList.length;
+        if (partyTotal === 0) {
+          client.say(channel, `@${tags.username}, matchmaking list is empty.`);
+          return;
+        }
+        
+        const partyOrder = randomMm.mmList.slice();
+        const partyRandom = partyOrder.sort(() => Math.random() - 0.5);
+        let countP = 1;
+        const randomMmNewTeams = [];
+        
+        while (partyRandom.length) {
+          const partyRandomQ = partyRandom.splice(0, teamSize);
+          const teamInfo = new Team(countP, teamSize, partyRandomQ);
+          randomMmNewTeams.push(teamInfo);
+          client.say(channel, `Team #${teamInfo.number}: ${teamInfo.members.join(', ')}`);
+          await sleep(1000);
+          countP++;
+        }
+        
+        await updateMmInfo(randomMmNewTeams);
+        await sleep(2000);
+        await writeToMatchmakingFile();
         return;
+      }
+      
+      if (partyCommand === "info") {
+        if (matchmaking_list.has(channel1)) {
+          const showTeamsInfo = matchmaking_list.get(channel1).teams;
+          if (showTeamsInfo.length > 0) {
+            for (let i = 0; i < showTeamsInfo.length; i++) {
+              const team = Object.assign(new Team(), showTeamsInfo[i]);
+              client.say(channel, `Team #${team.number}: ${team.members.join(', ')}`);
+              await sleep(500);
+            }
+          } else {
+            client.say(channel, `@${tags.username}, no teams found.`);
+          }
+        } else {
+          client.say(channel, `@${tags.username}, no matchmaking data found.`);
+        }
+        return;
+      }
+    }
+
+    // User commands
+    if (input.length > 3) {
+      client.say(channel, `@${tags.username}, invalid use of command. Use '!mm' to check current matchmaking list.`);
+      return;
+    }
+
+    // Check if matchmaking exists and is enabled
+    if (!matchmaking_list.has(channel1)) {
+      client.say(channel, `@${tags.username}, matchmaking function is not enabled. Broadcasters can send '!mm enable' to enable the matchmaking function.`);
+      return;
+    }
+
+    const mmObject = matchmaking_list.get(channel1);
+    const partyStatus = mmObject.getStatus();
+    const partyTotal = mmObject.mmList.length;
+    const partyOrder = mmObject.mmList.slice();
+
+    if (!partyStatus) {
+      if (input.length === 1) {
+        client.say(channel, `@${tags.username}, matchmaking function is not enabled. Broadcasters can send '!mm enable' to enable the matchmaking function.`);
       }
       return;
     }
+
+    // List all players
+    if (input.length === 1) {
+      if (partyTotal > 0) {
+        client.say(channel, `Total: ${partyTotal} players; List: ${partyOrder.join(', ')}`);
+      } else {
+        client.say(channel, `@${tags.username}, current matchmaking list is empty.`);
+      }
+      return;
+    }
+
+    // Join matchmaking
+    if (partyCommand === "join") {
+      let addUser = `@${tags.username}`;
+      
+      // Allow moderators to add other users
+      if (isModUp && input.length === 3) {
+        addUser = sanitizeUsername(input[2]);
+        if (!addUser) {
+          client.say(channel, `@${tags.username}, invalid username format.`);
+          return;
+        }
+      }
+
+      if (partyOrder.includes(addUser)) {
+        client.say(channel, `@${tags.username}, ${addUser} is already in the matchmaking list. Send '!mm unjoin' to remove from matchmaking.`);
+        return;
+      }
+
+      // Add user to list
+      partyOrder.push(addUser);
+      await updateMmList(partyOrder);
+      client.say(channel, `@${tags.username}, ${addUser} has joined matchmaking. Send '!mm unjoin' to remove from matchmaking.`);
+      await writeToMatchmakingFile();
+      return;
+    }
+
+    // Leave matchmaking
+    if (partyCommand === "unjoin") {
+      let removeUser = `@${tags.username}`;
+      
+      // Allow moderators to remove other users
+      if (isModUp && input.length === 3) {
+        removeUser = sanitizeUsername(input[2]);
+        if (!removeUser) {
+          client.say(channel, `@${tags.username}, invalid username format.`);
+          return;
+        }
+      }
+
+      const removeIndex = partyOrder.indexOf(removeUser);
+      if (removeIndex === -1) {
+        client.say(channel, `@${tags.username}, ${removeUser} is already removed from matchmaking list. Send '!mm join' to join matchmaking.`);
+        return;
+      }
+
+      // Remove user from list
+      partyOrder.splice(removeIndex, 1);
+      await updateMmList(partyOrder);
+      client.say(channel, `@${tags.username}, ${removeUser} has been removed from matchmaking list. Send '!mm join' to join matchmaking.`);
+      await writeToMatchmakingFile();
+      return;
+    }
+
+  } catch (error) {
+    console.error(`[MATCHMAKING] Error for user ${tags.username}:`, {
+      message: error.message,
+      command: input[0],
+      channel: channel1,
+      timestamp: new Date().toISOString()
+    });
+    client.say(channel, `@${tags.username}, sorry, matchmaking service encountered an error.`);
   }
 }
