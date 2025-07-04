@@ -7,7 +7,7 @@
  * 
  * Permission required: all users
  * 
- * Usage:   !weather<SPACE>[location] - Get weather of searched location.
+ * Usage:   !weather<SPACE>[location] - Get weather of searched location
  * 
  *          
  *  
