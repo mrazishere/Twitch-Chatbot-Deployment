@@ -21,7 +21,11 @@ const RATE_LIMIT_WINDOW = 60000; // 60 seconds
 const MAX_REQUESTS = 3; // Max 3 requests per minute (weather APIs have rate limits)
 
 // API configuration - using environment variable for security
-const API_KEY = process.env.ACCUWEATHER_API_KEY || 'uxReC9vMmorVHPwIwPZB0q40MUAkS2qC';
+const API_KEY = process.env.ACCUWEATHER_API_KEY;
+
+if (!API_KEY) {
+  console.error('[WEATHER] ACCUWEATHER_API_KEY environment variable is not set');
+}
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -164,6 +168,11 @@ exports.weather = async function weather(client, message, channel, tags) {
   }
   
   try {
+    if (!API_KEY) {
+      client.say(channel, `@${tags.username}, weather service is currently unavailable.`);
+      return;
+    }
+    
     if (!input[1]) {
       client.say(channel, `@${tags.username}, please enter a location to search for. Usage: !weather [location]`);
       return;
