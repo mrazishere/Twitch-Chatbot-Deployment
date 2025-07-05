@@ -102,7 +102,8 @@ exports.partyMatchmaking = async function partyMatchmaking(client, message, chan
   const isVIPUp = isVIP || isModUp;
   const channel1 = channel.substring(1); //channel name (i.e. username)
 
-  const input = message.split(" ");
+  // Clean and split input to handle invisible Unicode characters
+  const input = message.trim().split(" ").filter(part => part.trim().length > 0);
   
   if (input[0] !== "!mm") {
     return;

@@ -80,7 +80,8 @@ async function getDogFact() {
 }
 
 exports.dogfacts = async function dogfacts(client, message, channel, tags) {
-  const input = message.split(" ");
+  // Clean and split input to handle invisible Unicode characters
+  const input = message.trim().split(" ").filter(part => part.trim().length > 0);
   
   if (input[0] !== "!dogfacts") {
     return;

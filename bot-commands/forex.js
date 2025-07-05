@@ -212,7 +212,8 @@ async function getExchangeRate(fromCurrency, toCurrency, amount) {
 }
 
 exports.forex = async function forex(client, message, channel, tags) {
-  const input = message.split(" ");
+  // Clean and split input to handle invisible Unicode characters
+  const input = message.trim().split(" ").filter(part => part.trim().length > 0);
   
   if (input[0] !== "!forex") {
     return;

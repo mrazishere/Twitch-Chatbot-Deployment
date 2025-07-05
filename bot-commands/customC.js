@@ -79,11 +79,15 @@ function validateChannelPath(channelName) {
 }
 
 exports.customC = async function customC(client, message, channel, tags) {
-    const input = message.split(" ");
+    // Clean and split input to handle invisible Unicode characters
+    const input = message.trim().split(" ").filter(part => part.trim().length > 0);
     
-    // Check rate limiting first
-    if (!checkRateLimit(tags.username)) {
-        client.say(channel, `@${tags.username}, please wait before using custom commands again.`);
+    // Check if this is a custom command-related message FIRST
+    const isManagementCommand = ['!acomm', '!ecomm', '!dcomm', '!countcomm', '!lcomm'].includes(input[0]);
+    const isCustomCommand = input[0].startsWith('!') && input[0].length > 1;
+    
+    // Early exit if not a command at all
+    if (!isManagementCommand && !isCustomCommand) {
         return;
     }
     
@@ -116,6 +120,17 @@ exports.customC = async function customC(client, message, channel, tags) {
 
     function commandExists(commandName) {
         return customCommands.hasOwnProperty(commandName);
+    }
+    
+    // Now check if it's actually a custom command or management command
+    if (!isManagementCommand && !commandExists(input[0].substring(1))) {
+        return; // Not a custom command we handle
+    }
+    
+    // Check rate limiting only for valid commands
+    if (!checkRateLimit(tags.username)) {
+        client.say(channel, `@${tags.username}, please wait before using custom commands again.`);
+        return;
     }
 
     // Add command function with security validation

@@ -486,6 +486,11 @@ exports.claude = async function claude(client, message, channel, tags, context) 
         const input = message.split(" ");
         const command = input[0].toLowerCase();
 
+        // Check if this is a Claude-related command FIRST
+        if (!['!claude', '!research', '!system', '!reset', '!clear'].includes(command)) {
+            return; // Not our command, exit immediately
+        }
+
         // Validate username (basic security check)
         if (!validateUsername(tags.username)) {
             console.log(`Invalid username format: ${tags.username}`);
