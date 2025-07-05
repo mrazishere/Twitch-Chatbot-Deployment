@@ -579,9 +579,9 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                         }
                     }
 
-                    // Calculate available space after @username prefix
-                    const usernamePrefix = `@${tags.username}, `;
-                    const availableChars = 200 - usernamePrefix.length; // Conservative limit
+                    // Calculate available space for @username suffix
+                    const usernameSuffix = ` @${tags.username}`;
+                    const availableChars = 480 - usernameSuffix.length; // More reasonable limit (Twitch max is 500)
 
                     let firstMessage = responseText;
                     let secondMessage = '';
@@ -1007,9 +1007,9 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                         }
                     }
 
-                    // Calculate available space after @username prefix
-                    const usernamePrefix = `@${tags.username}, `;
-                    const availableChars = 200 - usernamePrefix.length; // Conservative limit
+                    // Calculate available space for @username suffix
+                    const usernameSuffix = ` @${tags.username}`;
+                    const availableChars = 480 - usernameSuffix.length; // More reasonable limit (Twitch max is 500)
 
                     let firstMessage = responseText;
                     let secondMessage = '';
