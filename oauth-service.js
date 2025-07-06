@@ -1070,15 +1070,8 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
                 <div id="responseSection" class="response-section">
                     <div id="responseText" class="response-text"></div>
                     <div class="audio-controls">
-                        <button class="audio-btn" onclick="speakResponse()">🔊 Speak</button>
+                        <button class="audio-btn" onclick="speakResponse()">▶️ Play</button>
                         <button class="audio-btn" onclick="stopSpeaking()">⏹️ Stop</button>
-                        <button class="audio-btn" onclick="pauseSpeaking()">⏸️ Pause</button>
-                        <button class="audio-btn" onclick="resumeSpeaking()">▶️ Resume</button>
-                        <div class="volume-control">
-                            <label for="volumeSlider">Volume:</label>
-                            <input type="range" id="volumeSlider" min="0" max="1" step="0.1" value="0.8" onchange="updateVolume()">
-                            <span id="volumeValue">80%</span>
-                        </div>
                     </div>
                 </div>
                 
@@ -1092,15 +1085,12 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
                 let isPaused = false;
                 let recognition = null;
                 let isListening = false;
+                let isGeneratingTTS = false; // Track TTS generation state
                 
                 function setPreset(text) {
                     document.getElementById('claudePrompt').value = text;
                 }
                 
-                function updateVolume() {
-                    const volume = document.getElementById('volumeSlider').value;
-                    document.getElementById('volumeValue').textContent = Math.round(volume * 100) + '%';
-                }
                 
                 async function triggerClaude() {
                     const prompt = document.getElementById('claudePrompt').value.trim();
@@ -1131,22 +1121,30 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
                         const data = await response.json();
                         
                         if (data.success) {
+                            // Clear TTS cache for new response
+                            cachedAudioUrl = null;
+                            cachedAudioText = null;
+                            cachedAudioVoice = null;
+                            console.log('🎵 Cleared TTS cache for new Claude response');
+                            
+                            // ALWAYS show text immediately (matches Twitch chat timing)
+                            console.log('🎵 Showing Claude response immediately on UI');
                             responseText.textContent = data.response;
                             responseSection.style.display = 'block';
                             
-                            // Auto-speak only if triggered by voice button
+                            // For voice triggers, also start TTS in background
                             if (userTriggeredAutoSpeak) {
                                 userTriggeredAutoSpeak = false; // Reset flag
-                                console.log('Auto-speaking response (voice triggered)...');
+                                console.log('🎵 Voice triggered - starting TTS in background...');
                                 try {
-                                    // Use the prepped audio context for mobile
-                                    await speakResponse();
-                                    console.log('Auto-speak completed successfully');
+                                    // Start TTS generation/playback without waiting
+                                    speakResponse().catch(error => {
+                                        console.error('Auto-speak failed:', error);
+                                    });
+                                    console.log('🎵 Auto-speak initiated');
                                 } catch (error) {
                                     console.error('Auto-speak failed:', error);
                                 }
-                            } else {
-                                console.log('Manual trigger - no auto-speak');
                             }
                         } else {
                             alert('Error: ' + data.error);
@@ -1161,36 +1159,129 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
                 }
                 
                 async function speakResponse() {
+                    console.log('🎵 Play button clicked');
+                    
+                    // Prevent multiple simultaneous TTS requests
+                    if (isGeneratingTTS) {
+                        console.log('🎵 TTS already generating, ignoring click');
+                        return;
+                    }
+                    
+                    // Get text from displayed text (always available immediately)
                     const text = document.getElementById('responseText').textContent;
-                    const volume = document.getElementById('volumeSlider').value;
+                    const volume = 0.8; // Default volume
+                    const selectedVoiceId = document.getElementById('voiceSelect').value;
                     
-                    if (!text) return;
+                    if (!text) {
+                        console.log('🎵 No text to speak');
+                        return;
+                    }
                     
-                    // Stop any existing speech
+                    // Stop any existing speech first
                     speechSynthesis.cancel();
                     if (currentAudio) {
                         currentAudio.pause();
                         currentAudio = null;
                     }
                     
-                    const selectedVoiceId = document.getElementById('voiceSelect').value;
+                    // Check if we can reuse cached audio
+                    if (cachedAudioUrl && cachedAudioText === text && cachedAudioVoice === selectedVoiceId) {
+                        console.log('🎵 Using cached audio URL:', cachedAudioUrl);
+                        playAudioFromUrl(cachedAudioUrl, volume);
+                        return;
+                    }
                     
-                    // Use AI voice if available, fallback to system voice
-                    if (selectedVoiceId && selectedVoiceId !== 'system') {
-                        try {
-                            console.log('Using AI voice:', selectedVoiceId);
+                    // Need to generate new TTS
+                    console.log('🎵 Generating new TTS for text:', text.substring(0, 50) + '...');
+                    isGeneratingTTS = true;
+                    updatePlayStopButtons(true);
+                    
+                    try {
+                        // Use AI voice if available, fallback to system voice
+                        if (selectedVoiceId && selectedVoiceId !== 'system') {
+                            console.log('🎵 Using AI voice:', selectedVoiceId);
                             await speakWithAI(text, selectedVoiceId, volume);
-                        } catch (error) {
-                            console.log('AI voice failed, falling back to system voice:', error);
+                        } else {
+                            console.log('🎵 Using system voice');
                             speakWithSystemVoice(text, volume);
+                            // Cache system voice (though no URL to cache)
+                            cachedAudioText = text;
+                            cachedAudioVoice = selectedVoiceId;
+                            cachedAudioUrl = null; // System voice has no URL
                         }
-                    } else {
-                        speakWithSystemVoice(text, volume);
+                    } catch (error) {
+                        console.error('🎵 TTS generation failed:', error);
+                        updatePlayStopButtons(false);
+                    } finally {
+                        isGeneratingTTS = false;
                     }
                 }
                 
                 let currentAudio = null;
                 let userTriggeredAutoSpeak = false; // Track if user expects auto-speak
+                let cachedAudioUrl = null; // Cache the TTS audio URL
+                let cachedAudioText = null; // Cache the text that was used for TTS
+                let cachedAudioVoice = null; // Cache the voice that was used
+                
+                function updatePlayStopButtons(isPlaying) {
+                    const playBtn = document.querySelector('.audio-btn[onclick="speakResponse()"]');
+                    const stopBtn = document.querySelector('.audio-btn[onclick="stopSpeaking()"]');
+                    
+                    if (isPlaying || isGeneratingTTS) {
+                        if (playBtn) {
+                            playBtn.disabled = true;
+                            playBtn.textContent = isGeneratingTTS ? '⏳ Generating...' : '🔊 Playing...';
+                            playBtn.style.opacity = '0.6';
+                        }
+                        if (stopBtn) {
+                            stopBtn.disabled = false;
+                            stopBtn.style.opacity = '1';
+                        }
+                    } else {
+                        if (playBtn) {
+                            playBtn.disabled = false;
+                            playBtn.textContent = '▶️ Play';
+                            playBtn.style.opacity = '1';
+                        }
+                        if (stopBtn) {
+                            stopBtn.disabled = false;
+                            stopBtn.style.opacity = '1';
+                        }
+                    }
+                }
+                
+                function playAudioFromUrl(audioUrl, volume) {
+                    console.log('🎵 Playing cached audio from URL');
+                    
+                    // Use prepped audio if available (for mobile), otherwise create new
+                    if (window.preppedAudio) {
+                        currentAudio = window.preppedAudio;
+                        currentAudio.src = audioUrl;
+                        window.preppedAudio = null; // Clear it
+                    } else {
+                        currentAudio = new Audio(audioUrl);
+                    }
+                    
+                    currentAudio.volume = parseFloat(volume);
+                    
+                    currentAudio.onended = () => {
+                        console.log('🎵 Cached audio playback ended');
+                        currentAudio = null;
+                        updatePlayStopButtons(false);
+                    };
+                    
+                    currentAudio.onerror = (error) => {
+                        console.error('🎵 Cached audio playback error:', error);
+                        currentAudio = null;
+                        updatePlayStopButtons(false);
+                    };
+                    
+                    updatePlayStopButtons(true);
+                    currentAudio.play().catch(error => {
+                        console.error('🎵 Cached audio play failed:', error);
+                        updatePlayStopButtons(false);
+                    });
+                }
                 
                 async function speakWithAI(text, voiceId, volume) {
                     // Generate speech using premium AI voices
@@ -1210,49 +1301,67 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
                         throw new Error('TTS API failed');
                     }
                     
-                    const contentType = response.headers.get('Content-Type');
+                    const responseData = await response.json();
                     
-                    if (contentType && contentType.includes('audio/')) {
-                        // We got actual audio from premium service
-                        const audioBlob = await response.blob();
-                        const audioUrl = URL.createObjectURL(audioBlob);
+                    if (responseData.success && responseData.audioUrl) {
+                        // We got a direct URL from TTS Monster
+                        console.log('Using TTS Monster direct URL:', responseData.audioUrl);
+                        
+                        // Cache the audio for future use
+                        cachedAudioUrl = responseData.audioUrl;
+                        cachedAudioText = text;
+                        cachedAudioVoice = voiceId;
+                        console.log('🎵 Cached TTS audio for future plays');
                         
                         // Use prepped audio if available (for mobile), otherwise create new
                         if (window.preppedAudio) {
                             currentAudio = window.preppedAudio;
-                            currentAudio.src = audioUrl;
+                            currentAudio.src = responseData.audioUrl;
                             window.preppedAudio = null; // Clear it
                             console.log('Using prepped audio for mobile compatibility');
                         } else {
-                            currentAudio = new Audio(audioUrl);
+                            currentAudio = new Audio(responseData.audioUrl);
                         }
                         
                         currentAudio.volume = parseFloat(volume);
                         
                         return new Promise((resolve, reject) => {
                             currentAudio.onended = () => {
-                                URL.revokeObjectURL(audioUrl);
+                                console.log('🎵 Audio playback ended');
+                                currentAudio = null; // Clear audio reference
+                                updatePlayStopButtons(false);
                                 resolve();
                             };
                             
                             currentAudio.onerror = (error) => {
-                                URL.revokeObjectURL(audioUrl);
+                                console.error('🎵 Audio playback error:', error);
+                                currentAudio = null; // Clear audio reference
+                                updatePlayStopButtons(false);
                                 reject(error);
                             };
                             
-                            currentAudio.play();
+                            currentAudio.oncanplay = () => {
+                                console.log('🎵 Audio ready to play');
+                                isGeneratingTTS = false; // Generation complete
+                                updatePlayStopButtons(true);
+                            };
+                            
+                            // Text is already shown immediately when Claude responds
+                            
+                            console.log('🎵 Starting audio playback');
+                            currentAudio.play().catch(error => {
+                                console.error('🎵 Audio play failed:', error);
+                                updatePlayStopButtons(false);
+                                isGeneratingTTS = false;
+                                reject(error);
+                            });
                         });
+                    } else if (responseData.fallback === 'browser') {
+                        // Use enhanced browser TTS with better settings
+                        console.log('Using enhanced system voice fallback');
+                        return speakWithEnhancedSystemVoice(text, responseData.voice_settings);
                     } else {
-                        // We got fallback instructions
-                        const fallbackData = await response.json();
-                        console.log('Received fallback data:', fallbackData);
-                        if (fallbackData.fallback === 'browser') {
-                            // Use enhanced browser TTS with better settings
-                            console.log('Using enhanced system voice fallback');
-                            return speakWithEnhancedSystemVoice(text, fallbackData.voice_settings);
-                        } else {
-                            throw new Error('No audio service available');
-                        }
+                        throw new Error('No audio service available');
                     }
                 }
                 
@@ -1319,13 +1428,24 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
                         }
                         
                         currentUtterance.onend = () => {
+                            console.log('🎵 System voice playback ended');
                             isPaused = false;
+                            currentUtterance = null; // Clear utterance reference
+                            updatePlayStopButtons(false);
                             resolve();
                         };
                         
                         currentUtterance.onerror = (error) => {
-                            console.error('System voice error:', error);
+                            console.error('🎵 System voice error:', error);
+                            currentUtterance = null; // Clear utterance reference
+                            updatePlayStopButtons(false);
                             reject(error);
+                        };
+                        
+                        currentUtterance.onstart = () => {
+                            console.log('🎵 System voice playback started');
+                            isGeneratingTTS = false; // Generation complete, now playing
+                            updatePlayStopButtons(true);
                         };
                         
                         speechSynthesis.speak(currentUtterance);
@@ -1343,12 +1463,26 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
                 }
                 
                 function stopSpeaking() {
+                    console.log('🛑 Stopping all audio playback');
+                    
+                    // Cancel speech synthesis
                     speechSynthesis.cancel();
+                    
+                    // Stop current audio
                     if (currentAudio) {
                         currentAudio.pause();
+                        currentAudio.currentTime = 0; // Reset to beginning
                         currentAudio = null;
                     }
+                    
+                    // Reset state
                     isPaused = false;
+                    isGeneratingTTS = false;
+                    
+                    // Update button states
+                    updatePlayStopButtons(false);
+                    
+                    console.log('🛑 Audio stopped successfully');
                 }
                 
                 function pauseSpeaking() {
@@ -1642,14 +1776,32 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
                     const voiceSelect = document.getElementById('voiceSelect');
                     voiceSelect.innerHTML = '';
                     
-                    // Add premium AI voices (requires ElevenLabs API key)
+                    // Add TTS Monster AI voices
                     const premiumVoices = [
-                        { id: 'hope', name: '🎭 Hope - Upbeat and Clear', description: 'Your custom AI voice - upbeat and clear' },
-                        { id: 'david', name: '🎬 David - Epic Movie Trailer', description: 'Epic movie trailer voice - dramatic and powerful' },
-                        { id: 'rachel', name: '🎭 Rachel - AI Professional', description: 'Premium AI voice - natural & clear' },
-                        { id: 'josh', name: '🎭 Josh - AI Conversational', description: 'Premium AI voice - friendly & warm' },
-                        { id: 'callum', name: '🎭 Callum - AI British', description: 'Premium AI voice - witty British accent' },
-                        { id: 'bella', name: '🎭 Bella - AI Engaging', description: 'Premium AI voice - storytelling' }
+                        { id: 'circuit', name: '🤖 Circuit - Electronic', description: 'Electronic robotic voice - default' },
+                        { id: 'alpha', name: '🎭 Alpha - Male', description: 'Strong male voice' },
+                        { id: 'aurora', name: '🌟 Aurora - Female', description: 'Bright female voice' },
+                        { id: 'breeze', name: '🍃 Breeze - Female', description: 'Gentle female voice' },
+                        { id: 'commander', name: '⚔️ Commander - Male', description: 'Authoritative military voice' },
+                        { id: 'titan', name: '💪 Titan - Male', description: 'Deep powerful voice' },
+                        { id: 'vera', name: '💼 Vera - Female', description: 'Professional female voice' },
+                        { id: 'atlas', name: '🌍 Atlas - Male', description: 'Strong reliable voice' },
+                        { id: 'axel', name: '⚡ Axel - Male', description: 'Energetic male voice' },
+                        { id: 'blitz', name: '⚡ Blitz - Male', description: 'Fast-paced voice' },
+                        { id: 'breaker', name: '🔨 Breaker - Male', description: 'Tough rugged voice' },
+                        { id: 'chef', name: '👨‍🍳 Chef - Male', description: 'Friendly cooking voice' },
+                        { id: 'dash', name: '🏃 Dash - Male', description: 'Quick energetic voice' },
+                        { id: 'elder', name: '🧙 Elder - Male', description: 'Wise elderly voice' },
+                        { id: 'frost', name: '❄️ Frost - Male', description: 'Cool calm voice' },
+                        { id: 'hunter', name: '🏹 Hunter - Male', description: 'Focused tracking voice' },
+                        { id: 'kawaii', name: '🌸 Kawaii - Female', description: 'Cute anime-style voice' },
+                        { id: 'leader', name: '👑 Leader - Male', description: 'Commanding leadership voice' },
+                        { id: 'mentor', name: '👨‍🏫 Mentor - Male', description: 'Teaching guidance voice' },
+                        { id: 'reasonable', name: '🤝 Reasonable - Male', description: 'Calm logical voice' },
+                        { id: 'scout', name: '🔍 Scout - Male', description: 'Alert exploration voice' },
+                        { id: 'sentinel', name: '🛡️ Sentinel - Male', description: 'Protective guard voice' },
+                        { id: 'star', name: '⭐ Star - Male', description: 'Bright stellar voice' },
+                        { id: 'whisper', name: '🤫 Whisper - Male', description: 'Soft quiet voice' }
                     ];
                     
                     premiumVoices.forEach((voice) => {
@@ -1658,8 +1810,8 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
                         option.textContent = voice.name;
                         option.title = voice.description;
                         
-                        // Set David as default
-                        if (voice.id === 'david') {
+                        // Set Circuit as default
+                        if (voice.id === 'circuit') {
                             option.selected = true;
                             option.textContent += ' ✨ (Default)';
                         }
@@ -1680,7 +1832,7 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
                     systemOption.title = 'Best available browser voice with optimized settings';
                     voiceSelect.appendChild(systemOption);
                     
-                    console.log('Loaded premium AI voices + enhanced system voice');
+                    console.log('Loaded TTS Monster AI voices + enhanced system voice');
                 }
                 
                 // Load voices immediately and on change
@@ -1774,9 +1926,9 @@ app.post('/auth/api/claude', requireAuth, async (req, res) => {
         const claudeMessage = `!claude ${prompt}`;
         await claudeCommand.claude(mockClient, claudeMessage, username, mockTags, {});
 
-        // Wait a bit for any additional parts to arrive
+        // Wait for additional response parts
         console.log('🎤 NODE: Waiting for additional response parts...');
-        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Wait 1.5 seconds for additional parts
 
         if (claudeResponseParts.length > 0) {
             // Combine all parts of the response
@@ -1831,65 +1983,104 @@ app.post('/auth/api/tts', requireAuth, async (req, res) => {
 
         const azureVoice = voiceMap[voice_id] || 'en-US-AriaNeural';
 
-        // Use Azure Cognitive Services for high-quality TTS
-        const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
-            <voice name="${azureVoice}">
-                <prosody rate="0.9" pitch="0%">
-                    ${text.replace(/[<>&"']/g, (char) => {
-            const entities = { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' };
-            return entities[char];
-        })}
-                </prosody>
-            </voice>
-        </speak>`;
+        // Voice mapping for fallback browser TTS
 
-        // Use ElevenLabs for truly realistic AI voices
-        const elevenlabsVoiceMap = {
-            'hope': 'tnSpp4vdxKPjI9w0GnoV', // Hope - Upbeat and Clear - Default
-            'david': 'FF7KdobWPaiR0vkcALHF', // David - Epic Movie Trailer ($0.20/1k)
-            'rachel': 'EXAVITQu4vr4xnSDxMaL', // Rachel - Professional
-            'josh': 'TxGEqnHWrfWFTfGW9XjX', // Josh - Friendly  
-            'arnold': 'ErXwobaYiN019PkySvjV', // Arnold - Deep
-            'bella': 'EXAVITQu4vr4xnSDxMaL', // Bella - Warm
-            'callum': 'IKne3meq5aSn9XLyUdCD', // Callum - British
-            'charlotte': 'XB0fDUnXU5powFXDhCwa', // Charlotte - Elegant
-            'matilda': 'ThT5KcBeYPX3keUQqHPh'  // Matilda - Playful
-        };
+        // Use TTS Monster for premium AI voices  
+        if (process.env.TTSMONSTER_API_KEY) {
+            // TTS Monster voice mapping (alphabetically sorted, filtered list)
+            const ttsMonsterVoiceMap = {
+                'akari': '32a369aa-5485-4039-beb6-4c757e93a197', // Akari - Japanese Female
+                'alpha': '98800f7e-05bf-4064-a8d2-cd12ee18496c', // Alpha - EN-US Male
+                'atlas': 'c4ad44ae-8da9-4375-90c0-55a1e6f1fbc6', // Atlas - EN-US Male
+                'aurora': '148c554a-f58d-4ed3-8395-a67f86d00501', // Aurora - EN-US Female
+                'axel': '24e1a8ff-e5c7-464f-a708-c4fe92c59b28', // Axel - EN-US Male
+                'blitz': '84cd0ca2-8b98-4fb7-9365-1c76965724d9', // Blitz - EN-US Male
+                'breaker': 'd1179775-d73d-46f4-ab12-bced0baf9cd2', // Breaker - EN-US Male
+                'breeze': '1aa9d694-1da5-4bdb-8e07-6392ec526c2f', // Breeze - EN-US Female
+                'brian': '0993f688-6719-4cf6-9769-fee7b77b1df5', // Brian Robot - EN-US Male
+                'chef': '01f69a26-0759-44e4-b317-cdbcb26b26c0', // Chef - EN-US Male
+                'circuit': 'e8a18685-00fd-4798-aa3d-50424f8de7e6', // Circuit - EN-US Male
+                'commander': 'ff076c08-31e5-43ad-9d9a-7d9c2e5a34be', // Commander - EN-US Male
+                'czar': '4a995df1-5462-444c-a070-90c1d75884f6', // Czar - Russian Male
+                'dash': 'd2f70685-fbe3-4ca0-b0fd-cfb24f7e0c48', // Dash - EN-US Male
+                'debater': 'a0741f38-b14a-4204-a26e-80f795f03637', // Debater - EN-US Male
+                'diplomat': '49826b97-091a-4821-a978-15692387647a', // Diplomat - EN-US Male
+                'elder': 'e0f1c6e2-fbb2-4df4-9ec2-f1109371ab1e', // Elder - EN-US Male
+                'explorer': '7dfab21a-da07-4474-b7df-dcbbd7c7c69c', // Explorer - EN-US Male
+                'forge': '5161b27a-3c2a-4886-9c58-ef96cef0c022', // Forge - EN-US Male
+                'frogman': '47906020-29e9-4903-91e3-8b66b0528410', // Frogman - EN-US Male
+                'frost': '314df8f9-d157-4bb7-b744-0172e2fb8a32', // Frost - EN-US Male
+                'gravel': '8312e7dd-cb15-4d9f-9d51-035209413b7a', // Gravel - EN-US Male
+                'hunter': 'c5d9224a-60d1-48db-9dfd-3146842a931c', // Hunter - EN-US Male
+                'inferno': '5b694acf-1513-427a-b920-6a68dcf15184', // Inferno - EN-US Male
+                'ironclad': 'd421ea19-2263-47d3-a3e7-34ad8b2c5444', // Ironclad - EN-US Male
+                'kawaii': '604168da-f156-450b-8794-e89175abdcd4', // Kawaii - EN-US Female
+                'leader': '9af5e3d0-b4b2-44eb-9580-849d8d36a30e', // Leader - EN-US Male
+                'mentor': '5dbb63c3-1179-4704-90cf-8dbe0d9b33ab', // Mentor - EN-US Male
+                'merlin': '26c9f68f-a1bd-4871-a76c-6eee020c5b07', // Merlin - French Male
+                'micro': '8153e703-4cfb-4716-8a92-ba19cc7f0228', // Micro - EN-US Male
+                'pablo': '050fc1b3-28be-4461-9977-b8b087f02dad', // Pablo - Spanish Male
+                'pulse': 'a5879188-842e-4971-a281-eae9791e2138', // Pulse - EN-US Male Unstable
+                'reasonable': 'c6698522-40c8-453b-8027-fdff52299a57', // Reasonable - EN-US Male
+                'scout': '66141f9a-2e93-4d95-ae09-86c7b677c5ae', // Scout - EN-US Male
+                'sentient': '2a18e91b-3050-4e7c-b150-c61eb7b8e34e', // Sentient - EN-US Male
+                'sentinel': '105e3e7d-ec3e-47a3-a3d3-86345feed23d', // Sentinel - EN-US Male
+                'shade': '1de3db1e-a4aa-4103-b399-ba6c1f1f95db', // Shade - EN-US Male
+                'spectral': '4b6941d0-0d79-424a-8c66-10c2942293dc', // Spectral - EN-US Male
+                'spongey': 'faa92dd8-0517-49da-8f01-1fb03f0e0096', // Spongey - EN-US Male Unstable
+                'star': '7e0ee786-b660-47ce-8de7-02fd49698efc', // Star - EN-US Male
+                'tentacle': '7cbd44df-08ac-4234-bc95-836e0ae6b22c', // Tentacle - EN-US Male
+                'titan': '87537bb9-71e1-481a-87fc-5ffc805a152b', // Titan - EN-US Male
+                'titanus': '923bc018-ccd0-4fc7-9642-0cb7ef6dddc5', // Titanus - EN-US Male
+                'tycoon': '1948c544-0eab-4408-9259-567b5b2059a4', // Tycoon - EN-US Male
+                'vera': '8393d2bc-88d4-4fd1-a4ac-074b4bae94ba', // Vera - EN-US Female
+                'verdant': '5fca4739-1d90-4ebe-acc3-dc542028ef58', // Verdant - EN-US Male
+                'vice': '1ee26ef6-b745-4adb-8e47-e81956194b13', // Vice - EN-US Male
+                'warden': '43c6b437-caf9-4ae9-a0e4-208deea2088e', // Warden - EN-US Male
+                'whisper': 'a33aa2c5-47f9-4882-a192-d7aa6a0c0efd', // Whisper - EN-US Male
+                'wretch': '61140e69-6cfc-470f-bb91-ad9afbc71092', // Wretch - EN-US Male
+                'yuki': '68bc5eb0-fa1f-4d9b-b0bc-89f51edf5fb0' // Yuki - Japanese Female
+            };
 
-        const elevenLabsVoiceId = elevenlabsVoiceMap[voice_id] || elevenlabsVoiceMap['david'];
+            const ttsMonsterVoiceId = ttsMonsterVoiceMap[voice_id] || ttsMonsterVoiceMap['circuit'];
 
-        // Use ElevenLabs for premium AI voices  
-        if (process.env.ELEVENLABS_API_KEY) {
-            console.log('🎤 NODE: Using ElevenLabs API with voice:', elevenLabsVoiceId);
-            const ttsResponse = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoiceId}`, {
+            console.log('🎤 NODE: Using TTS Monster API with voice:', ttsMonsterVoiceId);
+            
+            // First, get the TTS URL from TTS Monster
+            const ttsResponse = await fetch('https://api.console.tts.monster/generate', {
                 method: 'POST',
                 headers: {
-                    'Accept': 'audio/mpeg',
                     'Content-Type': 'application/json',
-                    'xi-api-key': process.env.ELEVENLABS_API_KEY
+                    'Authorization': process.env.TTSMONSTER_API_KEY
                 },
                 body: JSON.stringify({
-                    text: text,
-                    model_id: 'eleven_monolingual_v1',
-                    voice_settings: {
-                        stability: 0.5,
-                        similarity_boost: 0.8,
-                        style: 0.2,
-                        use_speaker_boost: true
-                    }
+                    voice_id: ttsMonsterVoiceId,
+                    message: text,
+                    return_usage: true
                 })
             });
 
             if (ttsResponse.ok) {
-                console.log('🎤 NODE: ElevenLabs TTS successful, sending audio');
-                const audioBuffer = await ttsResponse.arrayBuffer();
-                console.log('🎤 NODE: Audio buffer size:', audioBuffer.byteLength, 'bytes');
-                res.setHeader('Content-Type', 'audio/mpeg');
-                res.setHeader('Content-Length', audioBuffer.byteLength);
-                res.send(Buffer.from(audioBuffer));
-                return;
+                const ttsData = await ttsResponse.json();
+                if (ttsData.url) {
+                    console.log('🎤 NODE: TTS Monster generated audio URL:', ttsData.url);
+                    console.log('🎤 NODE: Character usage:', ttsData.characterUsage || 'Unknown');
+                    
+                    // Return the TTS Monster URL directly for browser to play
+                    res.json({
+                        success: true,
+                        audioUrl: ttsData.url,
+                        provider: 'tts-monster',
+                        characterUsage: ttsData.characterUsage
+                    });
+                    return;
+                } else {
+                    console.log('🎤 NODE: TTS Monster response missing URL:', ttsData);
+                }
             } else {
-                console.log('🎤 NODE: ElevenLabs TTS failed, status:', ttsResponse.status);
+                console.log('🎤 NODE: TTS Monster API failed, status:', ttsResponse.status);
+                const errorData = await ttsResponse.text();
+                console.log('🎤 NODE: TTS Monster error:', errorData);
             }
         }
 
