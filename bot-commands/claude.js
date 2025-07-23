@@ -474,6 +474,163 @@ function setUserCooldown(username, channel) {
 
 
 /**
+ * Handle special trigger phrases that don't require specific commands
+ * @param {TwitchClient} client - The Twitch client instance
+ * @param {string} message - The message content
+ * @param {string} channel - The channel name
+ * @param {Object} tags - Message tags containing user info
+ * @param {Object} context - Message context containing reply data
+ * @param {string} messageContent - The sanitized message content
+ */
+async function handleSpecialTrigger(client, channel, tags, context, messageContent) {
+    // Validate username (basic security check)
+    if (!validateUsername(tags.username)) {
+        console.log(`Invalid username format: ${tags.username}`);
+        return;
+    }
+
+    // Set up permission flags for broadcaster and owner
+    const badges = tags.badges || {};
+    const isBroadcaster = badges.broadcaster;
+    const isBroadcasterOrOwner = isBroadcaster || tags.username === process.env.TWITCH_OWNER;
+
+    // Log special trigger
+    console.log({
+        timestamp: new Date().toISOString(),
+        username: tags.username,
+        command: 'special-trigger',
+        message: messageContent,
+        context: context
+    });
+
+    const rateLimitCheck = checkRateLimit(tags.username);
+    if (!rateLimitCheck.allowed) {
+        logStructured('warn', 'Special trigger rate limited', {
+            username: tags.username,
+            reason: rateLimitCheck.reason,
+            requests: rateLimitCheck.totalRequests,
+            burstRequests: rateLimitCheck.burstRequests
+        });
+        return;
+    }
+
+    // Skip cooldown check for broadcasters and channel owners
+    const cooldownStatus = isUserOnCooldown(tags.username, channel);
+    if (!isBroadcasterOrOwner && cooldownStatus.onCooldown) {
+        // Send cooldown notification instead of silent fail
+        client.say(channel, `@${tags.username}, please wait ${cooldownStatus.remainingMinutes} minute${cooldownStatus.remainingMinutes > 1 ? 's' : ''} before using this command again.`);
+        return;
+    }
+
+    try {
+        // Initialize channel history if it doesn't exist and track activity
+        if (!channelHistory.has(channel)) {
+            channelHistory.set(channel, []);
+        }
+        channelLastActivity.set(channel, Date.now());
+
+        const data = await callClaudeAPI([
+            {
+                role: "user",
+                content: "Tips on getting a girlfriend?"
+            }
+        ], systemPrompt);
+
+        if (data && data.content && data.content.length > 0) {
+            // Combine all text blocks from the response
+            let responseText = '';
+            for (const content of data.content) {
+                if (content.type === 'text') {
+                    responseText += content.text;
+                }
+            }
+
+            // Remove preamble text that might slip through (but not @mentions in the middle of content)
+            responseText = responseText.replace(/^(I'll search|Let me find|I'll look up|Looking for|Searching for|I'll check|Let me check|Checking)[^.!?]*[.!?]?\s*/gi, '');
+            responseText = responseText.replace(/^[^.!?]*\b(search|find|check|look)\b[^.!?]*[.!?]?\s*/gi, '');
+            responseText = responseText.replace(/PogChamp\s*/g, ''); // Remove stray emotes
+
+            // ONLY remove @mentions at the very beginning of the response (not throughout)
+            responseText = responseText.replace(/@\w+,?\s*/g, '');
+            responseText = responseText.trim();
+
+            // If response still starts with problematic phrases, cut them out
+            if (/^(I'll|Let me|I'm going to|Here's|The latest)/i.test(responseText)) {
+                const sentences = responseText.split(/[.!?]+/);
+                if (sentences.length > 1) {
+                    responseText = sentences.slice(1).join('.').trim();
+                }
+            }
+
+            // Calculate available space for @username suffix
+            const usernameSuffix = ` @${tags.username}`;
+            const availableChars = 480 - usernameSuffix.length; // More reasonable limit (Twitch max is 500)
+
+            let firstMessage = responseText;
+            let secondMessage = '';
+
+            // If response is too long, split it
+            if (responseText.length > availableChars) {
+                // Try to split at a sentence boundary
+                const sentences = responseText.split(/([.!?]+\s*)/);
+                let tempMessage = '';
+
+                for (let i = 0; i < sentences.length; i++) {
+                    if ((tempMessage + sentences[i]).length > availableChars - 3) {
+                        break;
+                    }
+                    tempMessage += sentences[i];
+                }
+
+                if (tempMessage.length > 0) {
+                    firstMessage = tempMessage.trim();
+                    secondMessage = responseText.substring(tempMessage.length).trim();
+                } else {
+                    // Fallback: hard cut
+                    firstMessage = responseText.substring(0, availableChars - 3) + "...";
+                    secondMessage = "..." + responseText.substring(availableChars - 3);
+                }
+            }
+
+            // Update channel history with user's prompt and Claude's response
+            const currentHistory = channelHistory.get(channel);
+            currentHistory.push(
+                { role: "user", content: "Tips on getting a girlfriend?" },
+                { role: "assistant", content: responseText }
+            );
+
+            // Maintain maximum history length by removing oldest messages when limit is reached
+            while (currentHistory.length > MAX_HISTORY_LENGTH * 2) {
+                currentHistory.shift();
+            }
+
+            channelHistory.set(channel, currentHistory);
+
+            // Send first message
+            client.say(channel, `@${tags.username}, ${firstMessage}`);
+
+            // Send second message if there's continuation content
+            if (secondMessage && secondMessage.length > 0) {
+                setTimeout(() => {
+                    client.say(channel, secondMessage);
+                }, 1000);
+            }
+
+            // Apply per-user cooldown only if the user is not broadcaster/owner
+            if (!isBroadcasterOrOwner) {
+                setUserCooldown(tags.username, channel);
+            }
+            incrementRateLimit(tags.username);
+        } else {
+            throw new Error(`Unexpected response format: ${JSON.stringify(data)}`);
+        }
+    } catch (error) {
+        console.error("Claude API Error:", error);
+        client.say(channel, `@${tags.username}, Sorry, I encountered an error processing your request.`);
+    }
+}
+
+/**
  * Main Claude handler function for Twitch chat
  * @param {TwitchClient} client - The Twitch client instance
  * @param {string} message - The message content
@@ -486,9 +643,18 @@ exports.claude = async function claude(client, message, channel, tags, context) 
         const input = message.split(" ");
         const command = input[0].toLowerCase();
 
-        // Check if this is a Claude-related command FIRST
+        // Check for special triggers first, regardless of command format
+        const messageContent = validateAndSanitizeInput(message.toLowerCase().trim());
+        
+        // Handle special case triggers that don't require specific commands
+        if (messageContent && messageContent.includes('tips on getting a gf')) {
+            await handleSpecialTrigger(client, channel, tags, context, messageContent);
+            return;
+        }
+
+        // Only process Claude-related commands after checking special triggers
         if (!['!claude', '!research', '!system', '!reset', '!clear'].includes(command)) {
-            return; // Not our command, exit immediately
+            return; // Not our command, exit
         }
 
         // Validate username (basic security check)
@@ -506,147 +672,6 @@ exports.claude = async function claude(client, message, channel, tags, context) 
         const isBroadcasterOrOwner = isBroadcaster || tags.username === process.env.TWITCH_OWNER;
         //const isBroadcasterOrOwner = isBroadcaster;
 
-        // We'll move the debug logging to the relevant command blocks
-
-        // Check for special triggers
-        const messageContent = validateAndSanitizeInput(message.toLowerCase().trim());
-        
-        // Skip if message is invalid
-        if (!messageContent) {
-            return;
-        }
-
-        // Handle special case triggers
-        if (messageContent.includes('tips on getting a gf')) {
-            // Log special trigger
-            console.log({
-                timestamp: new Date().toISOString(),
-                username: tags.username,
-                command: 'special-trigger',
-                message: messageContent,
-                context: context
-            });
-            const rateLimitCheck = checkRateLimit(tags.username);
-            if (!rateLimitCheck.allowed) {
-                logStructured('warn', 'Special trigger rate limited', {
-                    username: tags.username,
-                    reason: rateLimitCheck.reason,
-                    requests: rateLimitCheck.totalRequests,
-                    burstRequests: rateLimitCheck.burstRequests
-                });
-                return;
-            }
-
-            // Skip cooldown check for broadcasters and channel owners
-            const cooldownStatus = isUserOnCooldown(tags.username, channel);
-            if (!isBroadcasterOrOwner && cooldownStatus.onCooldown) {
-                // Send cooldown notification instead of silent fail
-                client.say(channel, `@${tags.username}, please wait ${cooldownStatus.remainingMinutes} minute${cooldownStatus.remainingMinutes > 1 ? 's' : ''} before using this command again.`);
-                return;
-            }
-
-            try {
-                const data = await callClaudeAPI([
-                    {
-                        role: "user",
-                        content: "Tips on getting a girlfriend?"
-                    }
-                ], systemPrompt);
-
-                if (data && data.content && data.content.length > 0) {
-                    // Combine all text blocks from the response
-                    let responseText = '';
-                    for (const content of data.content) {
-                        if (content.type === 'text') {
-                            responseText += content.text;
-                        }
-                    }
-
-                    // Remove preamble text that might slip through (but not @mentions in the middle of content)
-                    responseText = responseText.replace(/^(I'll search|Let me find|I'll look up|Looking for|Searching for|I'll check|Let me check|Checking)[^.!?]*[.!?]?\s*/gi, '');
-                    responseText = responseText.replace(/^[^.!?]*\b(search|find|check|look)\b[^.!?]*[.!?]?\s*/gi, '');
-                    responseText = responseText.replace(/PogChamp\s*/g, ''); // Remove stray emotes
-
-                    // ONLY remove @mentions at the very beginning of the response (not throughout)
-                    responseText = responseText.replace(/@\w+,?\s*/g, '');
-                    responseText = responseText.trim();
-
-                    // If response still starts with problematic phrases, cut them out
-                    if (/^(I'll|Let me|I'm going to|Here's|The latest)/i.test(responseText)) {
-                        const sentences = responseText.split(/[.!?]+/);
-                        if (sentences.length > 1) {
-                            responseText = sentences.slice(1).join('.').trim();
-                        }
-                    }
-
-                    // Calculate available space for @username suffix
-                    const usernameSuffix = ` @${tags.username}`;
-                    const availableChars = 480 - usernameSuffix.length; // More reasonable limit (Twitch max is 500)
-
-                    let firstMessage = responseText;
-                    let secondMessage = '';
-
-                    // If response is too long, split it
-                    if (responseText.length > availableChars) {
-                        // Try to split at a sentence boundary
-                        const sentences = responseText.split(/([.!?]+\s*)/);
-                        let tempMessage = '';
-
-                        for (let i = 0; i < sentences.length; i++) {
-                            if ((tempMessage + sentences[i]).length > availableChars - 3) {
-                                break;
-                            }
-                            tempMessage += sentences[i];
-                        }
-
-                        if (tempMessage.length > 0) {
-                            firstMessage = tempMessage.trim();
-                            secondMessage = responseText.substring(tempMessage.length).trim();
-                        } else {
-                            // Fallback: hard cut
-                            firstMessage = responseText.substring(0, availableChars - 3) + "...";
-                            secondMessage = "..." + responseText.substring(availableChars - 3);
-                        }
-                    }
-
-                    // Update channel history with user's prompt and Claude's response
-                    const currentHistory = channelHistory.get(channel);
-                    currentHistory.push(
-                        { role: "user", content: formattedPrompt },
-                        { role: "assistant", content: responseText }
-                    );
-
-                    // Maintain maximum history length by removing oldest messages when limit is reached
-                    while (currentHistory.length > MAX_HISTORY_LENGTH * 2) {
-                        currentHistory.shift();
-                    }
-
-                    channelHistory.set(channel, currentHistory);
-
-                    // Send first message
-                    client.say(channel, `@${tags.username}, ${firstMessage}`);
-
-                    // Send second message if there's continuation content
-                    if (secondMessage && secondMessage.length > 0) {
-                        setTimeout(() => {
-                            client.say(channel, secondMessage);
-                        }, 1000);
-                    }
-
-                    // Apply per-user cooldown only if the user is not broadcaster/owner
-                    if (!isBroadcasterOrOwner) {
-                        setUserCooldown(tags.username, channel);
-                    }
-                    incrementRateLimit(tags.username);
-                } else {
-                    throw new Error(`Unexpected response format: ${JSON.stringify(data)}`);
-                }
-            } catch (error) {
-                console.error("Claude API Error:", error);
-                client.say(channel, `@${tags.username}, Sorry, I encountered an error processing your request.`);
-            }
-            return;
-        }
 
         // Only process specific commands
         if (!command.startsWith('!claude') && command !== '!system' && command !== '!reset' && command !== '!clear' && command !== '!research') {

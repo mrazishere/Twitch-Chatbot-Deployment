@@ -563,67 +563,68 @@ async function main() {
         isCommand = true;
       }
 
-      // Only process commands if this is actually a command message
-      if (isCommand) {
-        const commands = {};
-        const glob = require("glob");
-        // Get excluded commands from channel config
-        const excludedCommands = channelConfig.excludedCommands || [];
+      // Load and execute commands for ALL messages (not just commands starting with !)
+      const commands = {};
+      const glob = require("glob");
+      // Get excluded commands from channel config
+      const excludedCommands = channelConfig.excludedCommands || [];
 
-        // Check if the requested command is excluded FIRST
-        if (excludedCommands.includes(requestedCommandName)) {
-          console.log(`[${getTimestamp()}] info: Command "${requestedCommandName}" is excluded for channel ${channelName} - blocking execution`);
-          return; // Stop processing this command entirely
+      // For command messages, check if the requested command is excluded FIRST
+      if (isCommand && excludedCommands.includes(requestedCommandName)) {
+        console.log(`[${getTimestamp()}] info: Command "${requestedCommandName}" is excluded for channel ${channelName} - blocking execution`);
+        return; // Stop processing this command entirely
+      }
+
+      // Load all available commands (excluding the excluded ones)
+      glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`).forEach(file => {
+        const commandExports = require(file);
+        const functionName = file.split('/').pop().replace('.js', '');
+
+        // Skip if command is in the excluded list
+        if (excludedCommands.includes(functionName)) {
+          return;
         }
 
-        // Load all available commands (excluding the excluded ones)
-        glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`).forEach(file => {
-          const commandExports = require(file);
-          const functionName = file.split('/').pop().replace('.js', '');
+        if (typeof commandExports[functionName] === 'function') {
+          commands[functionName] = commandExports[functionName];
+        }
+      });
 
-          // Skip if command is in the excluded list (but don't log since we already logged above if needed)
-          if (excludedCommands.includes(functionName)) {
-            return;
+      // Execute ALL command functions for ALL messages (they handle their own filtering)
+      Object.keys(commands).forEach(commandName => {
+        const commandFunction = commands[commandName];
+        const tmiCompatibleTags = {
+          username: user,
+          'display-name': msg.userInfo.displayName,
+          badges: {
+            broadcaster: isBroadcaster ? '1' : undefined,
+            moderator: isMod ? '1' : undefined,
+            vip: isVip ? '1' : undefined,
+            subscriber: msg.userInfo.isSubscriber ? '1' : undefined,    // Map from Twurple
+            founder: msg.userInfo.isFounder ? '1' : undefined           // Map from Twurple
+          },
+          isModUp: isModUp,
+          isVIPUp: isVIPUp,
+          isSpecialUser: isSpecialUser,
+          ...msg.userInfo
+        };
+
+        const clientWrapper = {
+          say: (channel, message) => {
+            console.log(`[${getTimestamp()}] info: Command response: ${message}`);
+            return chatClient.say(channel, message);
           }
+        };
 
-          if (typeof commandExports[functionName] === 'function') {
-            commands[functionName] = commandExports[functionName];
-          }
-        });
-
-        // Execute commands only if this is a command message and not excluded
-        Object.keys(commands).forEach(commandName => {
-          const commandFunction = commands[commandName];
-          const tmiCompatibleTags = {
-            username: user,
-            'display-name': msg.userInfo.displayName,
-            badges: {
-              broadcaster: isBroadcaster ? '1' : undefined,
-              moderator: isMod ? '1' : undefined,
-              vip: isVip ? '1' : undefined,
-              subscriber: msg.userInfo.isSubscriber ? '1' : undefined,    // Map from Twurple
-              founder: msg.userInfo.isFounder ? '1' : undefined           // Map from Twurple
-            },
-            isModUp: isModUp,
-            isVIPUp: isVIPUp,
-            isSpecialUser: isSpecialUser,
-            ...msg.userInfo
-          };
-
-          const clientWrapper = {
-            say: (channel, message) => {
-              console.log(`[${getTimestamp()}] info: Command response: ${message}`);
-              return chatClient.say(channel, message);
-            }
-          };
-
-          try {
-            commandFunction(clientWrapper, text, channel, tmiCompatibleTags);
-          } catch (error) {
+        try {
+          commandFunction(clientWrapper, text, channel, tmiCompatibleTags);
+        } catch (error) {
+          // Only log actual errors, not "not our command" type messages
+          if (error.message && !error.message.includes('Not our command')) {
             console.log(`[${getTimestamp()}] error: Command ${commandName} failed:`, error.message);
           }
-        });
-      }
+        }
+      });
       // If not a command, skip all command processing entirely
 
     } catch (error) {
