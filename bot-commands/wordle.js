@@ -26,44 +26,42 @@ const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW = 5000; // 5 seconds between guesses per user
 const MAX_GUESS_LENGTH = 5;
 
-const fetch = require('node-fetch');
+const wordList = require('word-list-json');
 
-// Get random 5-letter word from API
-async function getRandomWord() {
-  try {
-    // Using random-words-api for 5-letter words
-    const response = await fetch('https://random-words-api.vercel.app/word', {
-      method: 'GET',
-      headers: {
-        'accept': 'application/json',
-        'content-type': 'application/json'
-      },
-      timeout: 5000
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API responded with status: ${response.status}`);
+// Cache 5-letter words on startup for better performance
+const fiveLetterWords = wordList.filter(word => 
+  word.length === 5 && /^[a-z]+$/.test(word)
+);
+
+console.log(`[WORDLE] Loaded ${fiveLetterWords.length} valid 5-letter words from word-list-json`);
+
+// Get random 5-letter word using npm package
+function getRandomWord() {
+  try {    
+    if (fiveLetterWords.length === 0) {
+      throw new Error('No 5-letter words available');
     }
     
-    const data = await response.json();
-    let word = data[0]?.word?.toUpperCase();
+    const randomIndex = Math.floor(Math.random() * fiveLetterWords.length);
+    const word = fiveLetterWords[randomIndex].toUpperCase();
     
-    // Validate that it's exactly 5 letters and only contains letters
-    if (word && word.length === 5 && /^[A-Z]+$/.test(word)) {
+    // Double-check validation
+    if (word.length === 5 && /^[A-Z]+$/.test(word)) {
       return word;
     } else {
-      // Fallback to local backup if API word is invalid
-      throw new Error('Invalid word from API');
+      throw new Error('Invalid word selected');
     }
     
   } catch (error) {
-    console.error('[WORDLE] API fetch failed, using fallback:', error.message);
+    console.error('[WORDLE] Word generation failed, using fallback:', error.message);
     
-    // Fallback word list for when API fails
+    // Fallback word list as last resort
     const FALLBACK_WORDS = [
       'ABOUT', 'HOUSE', 'WORLD', 'MUSIC', 'LIGHT', 'SOUND', 'WATER', 'POWER', 'MONEY', 'RIGHT',
       'HEART', 'PARTY', 'STORY', 'HAPPY', 'GREAT', 'BRAIN', 'QUICK', 'VOICE', 'WATCH', 'CLEAN',
-      'FRESH', 'SMART', 'MAGIC', 'PEACE', 'SMILE', 'DREAM', 'SHINE', 'SWEET', 'SPACE', 'CROWN'
+      'FRESH', 'SMART', 'MAGIC', 'PEACE', 'SMILE', 'DREAM', 'SHINE', 'SWEET', 'SPACE', 'CROWN',
+      'BRAVE', 'BREAD', 'BREAK', 'BRING', 'BUILD', 'CHAIR', 'CHART', 'CHECK', 'CHEST', 'CHILD',
+      'CLEAR', 'CLICK', 'CLIMB', 'CLOSE', 'CLOUD', 'COUNT', 'COVER', 'CRAFT', 'CRAZY', 'DANCE'
     ];
     
     return FALLBACK_WORDS[Math.floor(Math.random() * FALLBACK_WORDS.length)];
@@ -288,7 +286,7 @@ exports.wordle = async function wordle(client, message, channel, tags) {
         
         // Start new game
         try {
-          const newWord = await getRandomWord();
+          const newWord = getRandomWord();
           const gameState = {
             word: newWord,
             guesses: [],
