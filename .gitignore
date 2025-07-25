@@ -106,3 +106,6 @@ dist
 # Script data
 matchmaking.json
 package-lock.json
+
+# Wordle game data (channel-specific stats)
+wordle-data/
