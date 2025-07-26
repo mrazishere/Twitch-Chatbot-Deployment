@@ -1,8 +1,15 @@
 async function main() {
-  require('dotenv').config();
+  const path = require('path');
+  require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
   const fs = require('fs');
   const channelName = "$$UPDATEHERE$$";
+
+  function getTimestamp() {
+    const pad = (n, s = 2) => (`${new Array(s).fill(0)}${n}`).slice(-s);
+    const d = new Date();
+    return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
 
   console.log(`[${getTimestamp()}] Starting Mr-AI-is-Here bot for channel: ${channelName}`);
 
@@ -12,12 +19,6 @@ async function main() {
 
   // Import the EventSub manager
   const { CustomRewardsEventSubManager } = require(`${process.env.BOT_FULL_PATH}/custom-rewards-eventsub.js`);
-
-  function getTimestamp() {
-    const pad = (n, s = 2) => (`${new Array(s).fill(0)}${n}`).slice(-s);
-    const d = new Date();
-    return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  }
 
   // SECURITY: Validate channel name to prevent path traversal
   function validateChannelName(channelName) {
@@ -102,10 +103,29 @@ async function main() {
   // Load configuration for this channel
   const channelConfig = loadChannelConfig(channelName);
 
-  // SIMPLIFIED: Use bot's OAuth token for everything
-  const botOAuthToken = process.env.TWITCH_OAUTH.replace('oauth:', '');
+  // Function to get current token (from shared file or .env fallback)
+  function getCurrentToken() {
+    try {
+      // Try to read from shared token file first
+      const sharedTokenPath = `${process.env.BOT_FULL_PATH}/shared-tokens.json`;
+      if (fs.existsSync(sharedTokenPath)) {
+        const sharedTokenData = JSON.parse(fs.readFileSync(sharedTokenPath, 'utf8'));
+        console.log(`[${getTimestamp()}] info: Using shared token (updated: ${sharedTokenData.updatedAt})`);
+        return sharedTokenData.accessToken;
+      }
+    } catch (error) {
+      console.log(`[${getTimestamp()}] warning: Could not read shared token file, falling back to .env: ${error.message}`);
+    }
+    
+    // Fallback to .env file
+    console.log(`[${getTimestamp()}] info: Using .env token as fallback`);
+    return process.env.TWITCH_OAUTH.replace('oauth:', '');
+  }
 
-  // Create auth provider using bot's OAuth token
+  // Get current token from shared system
+  const botOAuthToken = getCurrentToken();
+
+  // Create auth provider using current token
   const botAuthProvider = new StaticAuthProvider(
     process.env.TWITCH_CLIENTID,
     botOAuthToken,

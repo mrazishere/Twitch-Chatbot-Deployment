@@ -57,8 +57,8 @@ async function main() {
       return null;
     }
     
-    // Remove any path traversal attempts
-    const sanitizedName = fileName.replace(/[^a-zA-Z0-9_.-]/g, '');
+    // Remove any path traversal attempts but allow parentheses
+    const sanitizedName = fileName.replace(/[^a-zA-Z0-9_.()-]/g, '');
     
     // Ensure no path traversal
     const fullPath = path.resolve(basePath, sanitizedName);
@@ -252,24 +252,41 @@ async function main() {
               }
 
               try {
-                let config = fs.readFileSync(ecosystemPath, 'utf8');
-                config = config.replace(/apps:\s*\[([\s\S]*?)\]/g, (match, p1) => {
-                  return `apps: [${p1}  ,
-    {
-      name: '${sanitizedUser}',
-      script: '${process.env.BOT_FULL_PATH}/channels/${sanitizedUser}.js',
-      log_date_format: 'YYYY-MM-DD',
-      max_memory_restart: '100M',
-      watch: ['${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json'],
-      watch_delay: 2000,
-      ignore_watch: ['node_modules', 'logs', '*.log'],
-      watch_options: {
-        followSymlinks: false
-      }
-    }
-  ]`;
+                // SAFE APPROACH: Use eval to parse the module.exports, modify as object, then write back
+                const configContent = fs.readFileSync(ecosystemPath, 'utf8');
+                
+                // Create a safe evaluation environment
+                const moduleObj = { exports: {} };
+                const moduleCode = configContent.replace('module.exports', 'moduleObj.exports');
+                eval(moduleCode);
+                
+                const config = moduleObj.exports;
+                
+                // Check if user already exists
+                const existingApp = config.apps.find(app => app.name === sanitizedUser);
+                if (existingApp) {
+                  console.log(`${currentTime}: Bot for ${sanitizedUser} already exists in ecosystem config`);
+                  client.say(channel, `@${tags.username}, bot for ${sanitizedUser} already exists!`);
+                  return;
+                }
+                
+                // Add new app safely
+                config.apps.push({
+                  name: sanitizedUser,
+                  script: `${process.env.BOT_FULL_PATH}/channels/${sanitizedUser}.js`,
+                  log_date_format: 'YYYY-MM-DD HH:mm:ss',
+                  max_memory_restart: '100M',
+                  watch: [`${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json`],
+                  watch_delay: 2000,
+                  ignore_watch: ['node_modules', 'logs', '*.log'],
+                  watch_options: {
+                    followSymlinks: false
+                  }
                 });
-                fs.writeFileSync(ecosystemPath, config, 'utf8');
+                
+                // Write back as proper module.exports format
+                const newConfigContent = `module.exports = ${JSON.stringify(config, null, 2)}`;
+                fs.writeFileSync(ecosystemPath, newConfigContent, 'utf8');
               } catch (err) {
                 const config = `
 module.exports = {

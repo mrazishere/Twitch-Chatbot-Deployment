@@ -72,6 +72,9 @@ typings/
 .env
 .env.test
 
+# Shared OAuth tokens file
+shared-tokens.json
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 

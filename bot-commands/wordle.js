@@ -129,7 +129,12 @@ function checkGuessRateLimit(username) {
 function isValidWord(word) {
   if (!word || typeof word !== 'string') return false;
   const cleanWord = word.toUpperCase().trim();
-  return /^[A-Z]{5}$/.test(cleanWord);
+  
+  // Check basic format first
+  if (!/^[A-Z]{5}$/.test(cleanWord)) return false;
+  
+  // Check if word exists in dictionary
+  return fiveLetterWords.includes(cleanWord.toLowerCase());
 }
 
 // Get word feedback (Wordle-style)
@@ -314,7 +319,7 @@ exports.wordle = async function wordle(client, message, channel, tags) {
         }
         
         if (!isValidWord(guessWord)) {
-          client.say(channel, `@${displayName}, please provide a valid 5-letter word using only letters!`);
+          client.say(channel, `@${displayName}, "${guessWord}" is not a valid 5-letter word! Please use a real English word.`);
           return;
         }
         
