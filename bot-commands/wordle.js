@@ -18,6 +18,19 @@
 const fs = require('fs');
 const path = require('path');
 
+// Load channel configuration
+function loadChannelConfig(channelName) {
+  try {
+    const configPath = path.join(process.env.BOT_FULL_PATH || __dirname, 'channel-configs', `${channelName}.json`);
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+  } catch (error) {
+    console.error(`[WORDLE] Error loading config for ${channelName}:`, error.message);
+  }
+  return null;
+}
+
 // Channel-specific game states
 const channelGames = new Map();
 
@@ -28,12 +41,69 @@ const MAX_GUESS_LENGTH = 5;
 
 const wordList = require('word-list-json');
 
-// Cache 5-letter words on startup for better performance
-const fiveLetterWords = wordList.filter(word => 
+// Full dictionary for word validation (guesses)
+const validWords = wordList.filter(word => 
   word.length === 5 && /^[a-z]+$/.test(word)
-);
+).map(word => word.toLowerCase());
 
-console.log(`[WORDLE] Loaded ${fiveLetterWords.length} valid 5-letter words from word-list-json`);
+// Curated list of common 5-letter English words for Wordle answers
+const fiveLetterWords = [
+  'about', 'above', 'abuse', 'actor', 'acute', 'admit', 'adopt', 'adult', 'after', 'again',
+  'agent', 'agree', 'ahead', 'alarm', 'album', 'alert', 'alien', 'align', 'alike', 'alive',
+  'allow', 'alone', 'along', 'alter', 'among', 'anger', 'angle', 'angry', 'apart', 'apple',
+  'apply', 'arena', 'argue', 'arise', 'array', 'aside', 'asset', 'avoid', 'awake', 'award',
+  'aware', 'badly', 'baker', 'bases', 'basic', 'beach', 'began', 'begin', 'bench', 'billy',
+  'birth', 'black', 'blame', 'blind', 'block', 'blood', 'board', 'boost', 'booth', 'bound',
+  'brain', 'brand', 'brass', 'brave', 'bread', 'break', 'breed', 'brief', 'bring', 'broad',
+  'broke', 'brown', 'build', 'built', 'buyer', 'cable', 'carry', 'catch', 'cause', 'chain',
+  'chair', 'chaos', 'charm', 'chart', 'chase', 'cheap', 'check', 'chest', 'chief', 'child',
+  'chose', 'civil', 'claim', 'class', 'clean', 'clear', 'click', 'climb', 'clock', 'close',
+  'cloud', 'coach', 'coast', 'could', 'count', 'court', 'cover', 'craft', 'crash', 'crazy',
+  'cream', 'crime', 'cross', 'crowd', 'crown', 'crude', 'curve', 'cycle', 'daily', 'dance',
+  'dated', 'dealt', 'death', 'debut', 'delay', 'depth', 'doing', 'doubt', 'dozen', 'draft',
+  'drama', 'drank', 'dream', 'dress', 'drill', 'drink', 'drive', 'drove', 'dying', 'eager',
+  'early', 'earth', 'eight', 'elite', 'empty', 'enemy', 'enjoy', 'enter', 'entry', 'equal',
+  'error', 'event', 'every', 'exact', 'exist', 'extra', 'faith', 'false', 'fault', 'fiber',
+  'field', 'fifth', 'fifty', 'fight', 'final', 'first', 'fixed', 'flash', 'fleet', 'floor',
+  'fluid', 'focus', 'force', 'forth', 'forty', 'forum', 'found', 'frame', 'frank', 'fraud',
+  'fresh', 'front', 'fruit', 'fully', 'funny', 'giant', 'given', 'glass', 'globe', 'going',
+  'grace', 'grade', 'grain', 'grand', 'grant', 'grass', 'grave', 'great', 'green', 'gross',
+  'group', 'grown', 'guard', 'guess', 'guest', 'guide', 'happy', 'harry', 'heart', 'heavy',
+  'hence', 'henry', 'horse', 'hotel', 'house', 'human', 'ideal', 'image', 'index', 'inner',
+  'input', 'issue', 'japan', 'jimmy', 'joint', 'jones', 'judge', 'known', 'label', 'large',
+  'laser', 'later', 'laugh', 'layer', 'learn', 'lease', 'least', 'leave', 'legal', 'level',
+  'lewis', 'light', 'limit', 'links', 'lives', 'local', 'loose', 'lower', 'lucky', 'lunch',
+  'lying', 'magic', 'major', 'maker', 'march', 'maria', 'match', 'maybe', 'mayor', 'meant',
+  'media', 'metal', 'might', 'minor', 'minus', 'mixed', 'model', 'money', 'month', 'moral',
+  'motor', 'mount', 'mouse', 'mouth', 'moved', 'movie', 'music', 'needs', 'never', 'newly',
+  'night', 'noise', 'north', 'noted', 'novel', 'nurse', 'occur', 'ocean', 'offer', 'often',
+  'order', 'other', 'ought', 'paint', 'panel', 'paper', 'party', 'peace', 'peter', 'phase',
+  'phone', 'photo', 'piano', 'piece', 'pilot', 'pitch', 'place', 'plain', 'plane', 'plant',
+  'plate', 'point', 'pound', 'power', 'press', 'price', 'pride', 'prime', 'print', 'prior',
+  'prize', 'proof', 'proud', 'prove', 'queen', 'quick', 'quiet', 'quite', 'radio', 'raise',
+  'range', 'rapid', 'ratio', 'reach', 'ready', 'realm', 'rebel', 'refer', 'relax', 'repay',
+  'reply', 'rider', 'ridge', 'right', 'rigid', 'rival', 'river', 'robin', 'roger', 'roman',
+  'rough', 'round', 'route', 'royal', 'rural', 'scale', 'scene', 'scope', 'score', 'sense',
+  'serve', 'seven', 'shall', 'shape', 'share', 'sharp', 'sheet', 'shelf', 'shell', 'shift',
+  'shine', 'shock', 'shoot', 'short', 'shown', 'sided', 'sight', 'since', 'sixth', 'sixty',
+  'sized', 'skill', 'sleep', 'slide', 'small', 'smart', 'smile', 'smith', 'smoke', 'solid',
+  'solve', 'sorry', 'sound', 'south', 'space', 'spare', 'speak', 'speed', 'spend', 'spent',
+  'split', 'spoke', 'sport', 'staff', 'stage', 'stake', 'stand', 'start', 'state', 'steam',
+  'steel', 'steep', 'steer', 'stick', 'still', 'stock', 'stone', 'stood', 'store', 'storm',
+  'story', 'strip', 'stuck', 'study', 'stuff', 'style', 'sugar', 'suite', 'super', 'sweet',
+  'swift', 'swing', 'table', 'taken', 'taste', 'taxes', 'teach', 'teeth', 'terry', 'texas',
+  'thank', 'theft', 'their', 'theme', 'there', 'these', 'thick', 'thing', 'think', 'third',
+  'those', 'three', 'threw', 'throw', 'thumb', 'tiger', 'tight', 'timer', 'title', 'today',
+  'topic', 'total', 'touch', 'tough', 'tower', 'track', 'trade', 'train', 'treat', 'trend',
+  'trial', 'tribe', 'trick', 'tried', 'tries', 'truly', 'trunk', 'trust', 'truth', 'twice',
+  'uncle', 'under', 'undue', 'union', 'unity', 'until', 'upper', 'upset', 'urban', 'usage',
+  'usual', 'valid', 'value', 'video', 'virus', 'visit', 'vital', 'vocal', 'voice', 'waste',
+  'watch', 'water', 'wheel', 'where', 'which', 'while', 'white', 'whole', 'whose', 'woman',
+  'women', 'world', 'worry', 'worse', 'worst', 'worth', 'would', 'write', 'wrong', 'wrote',
+  'young', 'youth'
+];
+
+console.log(`[WORDLE] Loaded ${validWords.length} words for validation and ${fiveLetterWords.length} curated words for answers`);
 
 // Get random 5-letter word using npm package
 function getRandomWord() {
@@ -133,8 +203,8 @@ function isValidWord(word) {
   // Check basic format first
   if (!/^[A-Z]{5}$/.test(cleanWord)) return false;
   
-  // Check if word exists in dictionary
-  return fiveLetterWords.includes(cleanWord.toLowerCase());
+  // Check if word exists in dictionary (use broader validation list)
+  return validWords.includes(cleanWord.toLowerCase());
 }
 
 // Get word feedback (Wordle-style)
@@ -266,14 +336,19 @@ exports.wordle = async function wordle(client, message, channel, tags) {
   const username = tags.username;
   const displayName = tags['display-name'] || username;
   
+  // Load channel config for special user permissions
+  const channelConfig = loadChannelConfig(channelName);
+  const specialUsers = channelConfig?.specialUsers || [];
+  const isSpecialUser = specialUsers.includes(username);
+  
   // Permission checks
-  const isMod = tags.isModUp || tags.badges?.moderator || tags.badges?.broadcaster;
+  const isMod = tags.isModUp || tags.badges?.moderator || tags.badges?.broadcaster || isSpecialUser;
   
   try {
     switch (command) {
       case 'start':
         if (!isMod) {
-          client.say(channel, `@${displayName}, only moderators and broadcasters can start Wordle games!`);
+          client.say(channel, `@${displayName}, only moderators, broadcasters, and special users can start Wordle games!`);
           return;
         }
         
@@ -497,7 +572,7 @@ exports.wordle = async function wordle(client, message, channel, tags) {
         
       case 'stop':
         if (!isMod) {
-          client.say(channel, `@${displayName}, only moderators and broadcasters can stop Wordle games!`);
+          client.say(channel, `@${displayName}, only moderators, broadcasters, and special users can stop Wordle games!`);
           return;
         }
         

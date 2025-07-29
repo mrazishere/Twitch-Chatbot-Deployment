@@ -25,6 +25,29 @@ async function main() {
   // Connect to the channel specified using the settings found in the configurations
   client.connect().catch(console.error);
 
+  // NEW: Initialize token refresh system
+  async function initializeTokenRefresh() {
+    console.log(`${getTimestamp()}: Initializing token refresh system...`);
+    
+    // Initial token validation
+    const isValid = await validateBotToken();
+    if (!isValid) {
+      await refreshBotTokens();
+    }
+
+    // Set up periodic validation (every 12 hours)
+    setInterval(async () => {
+      console.log(`${getTimestamp()}: Performing periodic token validation...`);
+      const isValid = await validateBotToken();
+      if (!isValid) {
+        await refreshBotTokens();
+      }
+    }, 12 * 60 * 60 * 1000); // 12 hours
+  }
+
+  // Start token refresh system
+  initializeTokenRefresh().catch(console.error);
+
   // Sleep/delay function
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -100,6 +123,105 @@ async function main() {
     exec(safeCommand, callback);
   }
 
+  // NEW: Function to refresh bot tokens and update shared file
+  async function refreshBotTokens() {
+    try {
+      const sharedTokenPath = `${process.env.BOT_FULL_PATH}/shared-tokens.json`;
+      
+      if (!fs.existsSync(sharedTokenPath)) {
+        console.log(`${getTimestamp()}: shared-tokens.json not found, skipping refresh`);
+        return false;
+      }
+
+      const sharedTokenData = JSON.parse(fs.readFileSync(sharedTokenPath, 'utf8'));
+      
+      if (!sharedTokenData.refreshToken) {
+        console.log(`${getTimestamp()}: No refresh token found in shared-tokens.json`);
+        return false;
+      }
+
+      console.log(`${getTimestamp()}: Attempting to refresh bot tokens...`);
+
+      const response = await axios.post('https://id.twitch.tv/oauth2/token', {
+        grant_type: 'refresh_token',
+        refresh_token: sharedTokenData.refreshToken,
+        client_id: process.env.TWITCH_CLIENTID,
+        client_secret: process.env.TWITCH_CLIENTSECRET
+      }, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+
+      const newAccessToken = response.data.access_token;
+      const newRefreshToken = response.data.refresh_token;
+
+      // Update shared-tokens.json
+      const updatedSharedTokens = {
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'bot-deployment-manager'
+      };
+
+      fs.writeFileSync(sharedTokenPath, JSON.stringify(updatedSharedTokens, null, 2));
+
+      // Update .env file
+      const envPath = `${process.env.BOT_FULL_PATH}/.env`;
+      if (fs.existsSync(envPath)) {
+        let envContent = fs.readFileSync(envPath, 'utf8');
+        const newOAuthValue = `oauth:${newAccessToken}`;
+        
+        if (envContent.includes('TWITCH_OAUTH=')) {
+          envContent = envContent.replace(/TWITCH_OAUTH=.*$/m, `TWITCH_OAUTH=${newOAuthValue}`);
+        } else {
+          envContent += `\nTWITCH_OAUTH=${newOAuthValue}`;
+        }
+        
+        fs.writeFileSync(envPath, envContent);
+        
+        // Update process.env for current session
+        process.env.TWITCH_OAUTH = newOAuthValue;
+      }
+
+      console.log(`${getTimestamp()}: Bot tokens refreshed successfully - expires in ${Math.floor(response.data.expires_in / 3600)} hours`);
+      return true;
+
+    } catch (error) {
+      console.error(`${getTimestamp()}: Token refresh failed:`, error.response?.data || error.message);
+      return false;
+    }
+  }
+
+  // NEW: Function to validate current token
+  async function validateBotToken() {
+    try {
+      const sharedTokenPath = `${process.env.BOT_FULL_PATH}/shared-tokens.json`;
+      let accessToken;
+
+      if (fs.existsSync(sharedTokenPath)) {
+        const sharedTokenData = JSON.parse(fs.readFileSync(sharedTokenPath, 'utf8'));
+        accessToken = sharedTokenData.accessToken;
+      } else {
+        accessToken = process.env.TWITCH_OAUTH.replace('oauth:', '');
+      }
+
+      const response = await axios.get('https://id.twitch.tv/oauth2/validate', {
+        headers: {
+          'Authorization': `OAuth ${accessToken}`
+        }
+      });
+
+      const expiresIn = response.data.expires_in;
+      console.log(`${getTimestamp()}: Bot token valid - expires in ${Math.floor(expiresIn / 3600)} hours`);
+      
+      // If token expires in less than 24 hours, refresh it
+      return expiresIn > 86400; // 24 hours in seconds
+
+    } catch (error) {
+      console.log(`${getTimestamp()}: Bot token validation failed, attempting refresh`);
+      return false;
+    }
+  }
+
   // NEW: Function to check OAuth status via API
   async function checkOAuthStatus(channelName) {
     try {
@@ -138,7 +260,7 @@ async function main() {
   }
 
   // When the bot is on, it shall fetch the messages sent by user from the specified channel
-  client.on('message', (channel, tags, message, self) => {
+  client.on('message', async (channel, tags, message, self) => {
     if (self) return;
 
     // Set variables for user permission logic
@@ -308,8 +430,8 @@ module.exports = {
                 }
               }
 
-              // SECURITY: Safe PM2 start command
-              exec(`pm2 start "${outputPath}"`, (error, stdout, stderr) => {
+              // SECURITY: Safe PM2 start command with watch enabled
+              exec(`pm2 start "${outputPath}" --name "${sanitizedUser}" --watch "${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json" --watch-delay 2000 --ignore-watch "node_modules,logs,*.log" --max-memory-restart 100M --log-date-format "YYYY-MM-DD HH:mm:ss"`, (error, stdout, stderr) => {
                 if (error) {
                   console.log(`error: ${error.message}`);
                   return;
@@ -1209,6 +1331,34 @@ ${appsConfig.join(',\n')}
       updateConfigs();
     }
 
+    // NEW: Manual token refresh command
+    if (message.split(" ")[0] === "!refreshtoken" && isModUp) {
+      client.say(channel, "🔄 Manually refreshing bot tokens...");
+      const success = await refreshBotTokens();
+      if (success) {
+        client.say(channel, "✅ Bot tokens refreshed successfully! shared-tokens.json and .env updated.");
+      } else {
+        client.say(channel, "❌ Token refresh failed. Check logs for details.");
+      }
+    }
+
+    // NEW: Token status command
+    if (message.split(" ")[0] === "!tokenstatus" && isModUp) {
+      try {
+        const sharedTokenPath = `${process.env.BOT_FULL_PATH}/shared-tokens.json`;
+        if (fs.existsSync(sharedTokenPath)) {
+          const sharedTokenData = JSON.parse(fs.readFileSync(sharedTokenPath, 'utf8'));
+          const updatedAt = new Date(sharedTokenData.updatedAt);
+          const hoursAgo = Math.floor((Date.now() - updatedAt.getTime()) / (1000 * 60 * 60));
+          client.say(channel, `🔐 Bot tokens last updated: ${hoursAgo} hours ago by ${sharedTokenData.updatedBy}`);
+        } else {
+          client.say(channel, "❌ shared-tokens.json not found - using .env token only");
+        }
+      } catch (error) {
+        client.say(channel, "❌ Error checking token status");
+      }
+    }
+
     if (message.split(" ")[0] === "!help" && isModUp) {
       const helpMessage =
         "Mr-AI-is-Here Admin Commands: " +
@@ -1216,7 +1366,7 @@ ${appsConfig.join(',\n')}
         "!enablemod <channel> | !disablemod <channel> | !modstatus [channel] | " +
         "!oauthstatus <channel> | !bulkoauth | !oauthreminder <channel> | " +
         "!testmigrate <channel> | !batchmigrate [size] | !rollback <channel> | !rollbackall | " +
-        "!updateconfigs | " +
+        "!updateconfigs | !refreshtoken | !tokenstatus | " +
         "OAuth Dashboard: https://mr-ai.dev/auth";
 
       client.say(channel, helpMessage);
