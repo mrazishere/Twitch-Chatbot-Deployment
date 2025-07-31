@@ -190,8 +190,15 @@ async function main() {
         clearTimeout(tokenExpiryTimeout);
       }
       
-      // Calculate when oauth-service.js will refresh (1 hour before expiry)
-      const refreshWillHappenIn = (expiresInSeconds - 3600) * 1000; // Convert to milliseconds
+      // Check if token has less than 30 minutes remaining - skip scheduling if so
+      if (expiresInSeconds <= 1800) {
+        console.log(`[${getTimestamp()}] info: 📅 Token expires in ${Math.floor(expiresInSeconds/60)} minutes - too close to expiry, will retry scheduling in 30 minutes`);
+        setTimeout(() => scheduleEventSubReconnection(), 30 * 60 * 1000); // Retry in 30 minutes
+        return;
+      }
+      
+      // Calculate when oauth-service.js will refresh (30 minutes before expiry)
+      const refreshWillHappenIn = (expiresInSeconds - 1800) * 1000; // Convert to milliseconds
       
       // Schedule reconnection 30 seconds after the refresh should happen
       const reconnectIn = refreshWillHappenIn + (30 * 1000);
