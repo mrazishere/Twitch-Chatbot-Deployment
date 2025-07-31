@@ -55,18 +55,34 @@ class CustomRewardsEventSubManager {
         this.activeChannels = new Set();
     }
 
-    // Get channel owner's OAuth token from the OAuth manager
+    // Get channel owner's OAuth token from oauth.json file
     async getChannelOAuthToken(channelName) {
         try {
-            // SECURITY: Validate channel name before API call
+            // SECURITY: Validate channel name before file access
             const validChannelName = validateAndSanitizeUsername(channelName);
             if (!validChannelName) {
                 console.log(`[${this.getTimestamp()}] error: Invalid channel name format: ${channelName}`);
                 return null;
             }
             
-            const response = await axios.get(`http://localhost:3001/auth/token?channel=${validChannelName}`);
-            return response.data;
+            // Read oauth.json directly for faster access
+            const fs = require('fs').promises;
+            const path = require('path');
+            const oauthFile = path.join(process.env.BOT_FULL_PATH, 'channel-configs', 'oauth.json');
+            
+            const oauthData = JSON.parse(await fs.readFile(oauthFile, 'utf8'));
+            const channelOAuth = oauthData.channels[validChannelName];
+            
+            if (!channelOAuth) {
+                console.log(`[${this.getTimestamp()}] error: No OAuth data found for ${channelName}`);
+                return null;
+            }
+            
+            return {
+                access_token: channelOAuth.access_token,
+                username: channelOAuth.username,
+                expires_in: channelOAuth.expires_in
+            };
         } catch (error) {
             console.log(`[${this.getTimestamp()}] error: Failed to get OAuth token for ${channelName}:`, error.message);
             return null;

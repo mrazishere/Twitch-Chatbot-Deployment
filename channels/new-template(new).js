@@ -171,6 +171,67 @@ async function main() {
     console.log(`[${getTimestamp()}] info: Channel point redemptions disabled for ${channelName}`);
   }
 
+  // Smart token expiry-based EventSub reconnection
+  let tokenExpiryTimeout = null;
+
+  async function scheduleEventSubReconnection() {
+    try {
+      if (!channelConfig.redemptionEnabled) return;
+      
+      // Get current broadcaster token with expiry info
+      const response = await fetch(`http://localhost:3001/auth/token?channel=${channelName}`);
+      if (!response.ok) return;
+      
+      const tokenData = await response.json();
+      const expiresInSeconds = tokenData.expires_in || 14400; // Default 4 hours
+      
+      // Clear any existing timeout
+      if (tokenExpiryTimeout) {
+        clearTimeout(tokenExpiryTimeout);
+      }
+      
+      // Calculate when oauth-service.js will refresh (1 hour before expiry)
+      const refreshWillHappenIn = (expiresInSeconds - 3600) * 1000; // Convert to milliseconds
+      
+      // Schedule reconnection 30 seconds after the refresh should happen
+      const reconnectIn = refreshWillHappenIn + (30 * 1000);
+      
+      console.log(`[${getTimestamp()}] info: 📅 Token expires in ${Math.floor(expiresInSeconds/3600)}h ${Math.floor((expiresInSeconds%3600)/60)}m`);
+      console.log(`[${getTimestamp()}] info: 🔄 EventSub reconnection scheduled in ${Math.floor(reconnectIn/1000/60)} minutes`);
+      
+      tokenExpiryTimeout = setTimeout(async () => {
+        console.log(`[${getTimestamp()}] info: ⏰ Scheduled EventSub reconnection triggered`);
+        
+        // Wait a bit more to ensure oauth-service.js has refreshed
+        await new Promise(resolve => setTimeout(resolve, 10000)); // 10 second buffer
+        
+        // Stop current EventSub
+        await redemptionManager.stopChannelEventSub(channelName);
+        
+        // Reconnect with new token
+        const success = await redemptionManager.initializeChannelEventSub(channelName, chatClient);
+        
+        if (success) {
+          console.log(`[${getTimestamp()}] info: ✅ EventSub reconnected with refreshed token`);
+          // Schedule next reconnection
+          setTimeout(() => scheduleEventSubReconnection(), 60000); // Re-schedule in 1 minute
+        } else {
+          console.log(`[${getTimestamp()}] error: ❌ EventSub reconnection failed, will retry in 5 minutes`);
+          setTimeout(() => scheduleEventSubReconnection(), 5 * 60 * 1000);
+        }
+        
+      }, Math.max(reconnectIn, 60000)); // Minimum 1 minute delay
+      
+    } catch (error) {
+      console.log(`[${getTimestamp()}] error: Failed to schedule EventSub reconnection:`, error.message);
+      // Fallback: try again in 10 minutes
+      setTimeout(() => scheduleEventSubReconnection(), 10 * 60 * 1000);
+    }
+  }
+
+  // Initialize smart reconnection scheduling
+  setTimeout(scheduleEventSubReconnection, 30 * 1000); // Start after 30 seconds
+
   // Sleep/delay function
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));

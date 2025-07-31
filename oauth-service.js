@@ -73,6 +73,73 @@ async function saveChannelConfig(channelName, config) {
     console.log(`Channel config updated: ${channelName}`);
 }
 
+// OAuth helper functions
+const OAUTH_FILE = path.join(CHANNELS_DIR, 'oauth.json');
+
+async function loadOAuthData() {
+    try {
+        if (await fs.access(OAUTH_FILE).then(() => true).catch(() => false)) {
+            const data = await fs.readFile(OAUTH_FILE, 'utf8');
+            return JSON.parse(data);
+        }
+    } catch (error) {
+        console.error('Error loading OAuth data:', error.message);
+    }
+    
+    // Return default structure
+    return {
+        channels: {},
+        lastUpdated: null
+    };
+}
+
+async function saveOAuthData(oauthData) {
+    try {
+        // Ensure directory exists
+        await fs.mkdir(CHANNELS_DIR, { recursive: true });
+        
+        oauthData.lastUpdated = new Date().toISOString();
+        await fs.writeFile(OAUTH_FILE, JSON.stringify(oauthData, null, 2));
+        console.log(`OAuth data updated`);
+    } catch (error) {
+        console.error('Error saving OAuth data:', error.message);
+        throw error;
+    }
+}
+
+async function getChannelOAuth(channelName) {
+    const oauthData = await loadOAuthData();
+    return oauthData.channels[channelName] || null;
+}
+
+async function setChannelOAuth(channelName, tokenData) {
+    const oauthData = await loadOAuthData();
+    
+    oauthData.channels[channelName] = {
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+        expires_in: tokenData.expires_in,
+        scope: tokenData.scope,
+        token_type: tokenData.token_type,
+        username: tokenData.username,
+        user_id: tokenData.user_id,
+        display_name: tokenData.display_name,
+        created_at: tokenData.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+    };
+    
+    await saveOAuthData(oauthData);
+}
+
+async function removeChannelOAuth(channelName) {
+    const oauthData = await loadOAuthData();
+    
+    if (oauthData.channels[channelName]) {
+        delete oauthData.channels[channelName];
+        await saveOAuthData(oauthData);
+    }
+}
+
 // Helper function to send message to Twitch chat via bot
 async function sendToTwitchChat(channelName, message) {
     try {
@@ -332,17 +399,20 @@ async function showUserDashboard(username, res, userSession) {
         let oauthStatus = '❌ No OAuth Token';
         let oauthDetails = '';
 
-        if (config.oauth && config.oauth.access_token) {
+        // Check OAuth status from separate oauth.json file
+        const oauthData = await getChannelOAuth(username);
+        
+        if (oauthData && oauthData.access_token) {
             try {
                 const validateResponse = await axios.get('https://id.twitch.tv/oauth2/validate', {
-                    headers: { 'Authorization': `Bearer ${config.oauth.access_token}` }
+                    headers: { 'Authorization': `Bearer ${oauthData.access_token}` }
                 });
 
                 oauthStatus = '✅ OAuth Active';
                 oauthDetails = `
                     <p><strong>Token expires in:</strong> ${Math.floor(validateResponse.data.expires_in / 3600)} hours</p>
                     <p><strong>Scopes:</strong> ${validateResponse.data.scopes.join(', ')}</p>
-                    <p><strong>Last updated:</strong> ${new Date(config.oauth.updated_at).toLocaleString()}</p>
+                    <p><strong>Last updated:</strong> ${new Date(oauthData.updated_at).toLocaleString()}</p>
                 `;
 
                 actions = `
@@ -356,7 +426,7 @@ async function showUserDashboard(username, res, userSession) {
                 if (error.response?.status === 401) {
                     oauthStatus = '⚠️ OAuth Token Expired';
                     oauthDetails = `
-                        <p><strong>Last updated:</strong> ${new Date(config.oauth.updated_at).toLocaleString()}</p>
+                        <p><strong>Last updated:</strong> ${new Date(oauthData.updated_at).toLocaleString()}</p>
                         <p style="color: #856404;">Your OAuth token has expired and needs to be refreshed or regenerated.</p>
                     `;
 
@@ -559,8 +629,8 @@ app.get('/auth/callback', async (req, res) => {
             `);
         }
 
-        // Add OAuth data to existing config
-        config.oauth = {
+        // Save OAuth data to separate oauth.json file
+        await setChannelOAuth(channelName, {
             access_token: tokenData.access_token,
             refresh_token: tokenData.refresh_token,
             expires_in: tokenData.expires_in,
@@ -569,11 +639,10 @@ app.get('/auth/callback', async (req, res) => {
             username: userInfo.login,
             user_id: userInfo.id,
             display_name: userInfo.display_name,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        };
+            created_at: new Date().toISOString()
+        });
 
-        // Save updated config
+        // Save channel config (without OAuth data)
         await saveChannelConfig(channelName, config);
 
         res.send(`
@@ -616,7 +685,10 @@ app.get('/auth/status', requireAuth, async (req, res) => {
             `);
         }
 
-        if (!config.oauth || !config.oauth.access_token) {
+        // Check OAuth status from separate oauth.json file  
+        const oauthData = await getChannelOAuth(username);
+        
+        if (!oauthData || !oauthData.access_token) {
             return res.send(`
                 <h1>📋 Channel Status: ${username}</h1>
                 <p>✅ Channel config exists</p>
@@ -630,7 +702,7 @@ app.get('/auth/status', requireAuth, async (req, res) => {
         // Validate token with Twitch
         try {
             const validateResponse = await axios.get('https://id.twitch.tv/oauth2/validate', {
-                headers: { 'Authorization': `Bearer ${config.oauth.access_token}` }
+                headers: { 'Authorization': `Bearer ${oauthData.access_token}` }
             });
 
             res.send(`
@@ -646,12 +718,12 @@ app.get('/auth/status', requireAuth, async (req, res) => {
                 
                 <h3>OAuth Token Status</h3>
                 <p>✅ <strong>OAuth token is valid</strong></p>
-                <p><strong>Authenticated As:</strong> ${config.oauth.display_name} (@${config.oauth.username})</p>
-                <p><strong>User ID:</strong> ${config.oauth.user_id}</p>
+                <p><strong>Authenticated As:</strong> ${oauthData.display_name} (@${oauthData.username})</p>
+                <p><strong>User ID:</strong> ${oauthData.user_id}</p>
                 <p><strong>Scopes:</strong> ${validateResponse.data.scopes.join(', ')}</p>
                 <p><strong>Expires in:</strong> ${Math.floor(validateResponse.data.expires_in / 3600)} hours</p>
-                <p><strong>Created:</strong> ${new Date(config.oauth.created_at).toLocaleString()}</p>
-                <p><strong>Last Updated:</strong> ${new Date(config.oauth.updated_at).toLocaleString()}</p>
+                <p><strong>Created:</strong> ${new Date(oauthData.created_at).toLocaleString()}</p>
+                <p><strong>Last Updated:</strong> ${new Date(oauthData.updated_at).toLocaleString()}</p>
                 
                 <br>
                 <a href="/auth">Back to Your Dashboard</a>
@@ -664,9 +736,9 @@ app.get('/auth/status', requireAuth, async (req, res) => {
                     <p>✅ Channel config exists</p>
                     <p>❌ OAuth token is invalid or expired</p>
                     <br>
-                    <p><strong>Authenticated As:</strong> ${config.oauth.display_name} (@${config.oauth.username})</p>
-                    <p><strong>Created:</strong> ${new Date(config.oauth.created_at).toLocaleString()}</p>
-                    <p><strong>Last Updated:</strong> ${new Date(config.oauth.updated_at).toLocaleString()}</p>
+                    <p><strong>Authenticated As:</strong> ${oauthData.display_name} (@${oauthData.username})</p>
+                    <p><strong>Created:</strong> ${new Date(oauthData.created_at).toLocaleString()}</p>
+                    <p><strong>Last Updated:</strong> ${new Date(oauthData.updated_at).toLocaleString()}</p>
                     
                     <br>
                     <a href="/auth">Back to Your Dashboard</a>
@@ -692,8 +764,9 @@ app.get('/auth/refresh', requireAuth, async (req, res) => {
 
     try {
         const config = await loadChannelConfig(username);
+        const oauthData = await getChannelOAuth(username);
 
-        if (!config || !config.oauth || !config.oauth.refresh_token) {
+        if (!config || !oauthData || !oauthData.refresh_token) {
             return res.status(404).send(`
                 <h1>❌ Refresh Failed</h1>
                 <p>No refresh token found for your channel: ${username}</p>
@@ -704,19 +777,20 @@ app.get('/auth/refresh', requireAuth, async (req, res) => {
 
         const response = await axios.post('https://id.twitch.tv/oauth2/token', {
             grant_type: 'refresh_token',
-            refresh_token: config.oauth.refresh_token,
+            refresh_token: oauthData.refresh_token,
             client_id: TWITCH_CLIENT_ID,
             client_secret: TWITCH_CLIENT_SECRET
         }, {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
 
-        // Update config with new tokens
-        config.oauth.access_token = response.data.access_token;
-        config.oauth.refresh_token = response.data.refresh_token;
-        config.oauth.updated_at = new Date().toISOString();
-
-        await saveChannelConfig(username, config);
+        // Update OAuth data with new tokens
+        await setChannelOAuth(username, {
+            ...oauthData,
+            access_token: response.data.access_token,
+            refresh_token: response.data.refresh_token,
+            expires_in: response.data.expires_in
+        });
 
         console.log(`OAuth token refreshed successfully for channel: ${username}`);
         res.send(`
@@ -746,8 +820,9 @@ app.get('/auth/revoke', requireAuth, async (req, res) => {
 
     try {
         const config = await loadChannelConfig(username);
+        const oauthData = await getChannelOAuth(username);
 
-        if (!config || !config.oauth || !config.oauth.access_token) {
+        if (!config || !oauthData || !oauthData.access_token) {
             return res.status(404).send(`
                 <h1>❌ Revoke Failed</h1>
                 <p>No OAuth access token found for your channel: ${username}</p>
@@ -758,14 +833,21 @@ app.get('/auth/revoke', requireAuth, async (req, res) => {
         // Revoke token with Twitch
         await axios.post('https://id.twitch.tv/oauth2/revoke', {
             client_id: TWITCH_CLIENT_ID,
-            token: config.oauth.access_token
+            token: oauthData.access_token
         }, {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
 
-        // Remove OAuth section from config
-        delete config.oauth;
-        await saveChannelConfig(username, config);
+        // Remove OAuth data from oauth.json
+        await removeChannelOAuth(username);
+
+        // Also disable redemptions in channel config to stop EventSub attempts
+        if (config) {
+            config.redemptionEnabled = false;
+            config.redemptionRewardId = null;
+            await saveChannelConfig(username, config);
+            console.log(`Disabled redemptions for ${username} after token revocation`);
+        }
 
         console.log(`OAuth token revoked successfully for channel: ${username}`);
         res.send(`
@@ -826,47 +908,54 @@ app.get('/auth/token', async (req, res) => {
             return res.status(404).json({ error: `No config found for channel: ${channel}` });
         }
 
-        if (!config.oauth || !config.oauth.access_token) {
+        // Get OAuth data from separate file
+        const oauthData = await getChannelOAuth(channel);
+        
+        if (!oauthData || !oauthData.access_token) {
             return res.status(404).json({ error: `No OAuth token found for channel: ${channel}` });
         }
 
         // Validate token
         try {
-            await axios.get('https://id.twitch.tv/oauth2/validate', {
-                headers: { 'Authorization': `Bearer ${config.oauth.access_token}` }
+            const validateResponse = await axios.get('https://id.twitch.tv/oauth2/validate', {
+                headers: { 'Authorization': `Bearer ${oauthData.access_token}` }
             });
 
             res.json({
-                access_token: config.oauth.access_token,
-                username: config.oauth.username,
+                access_token: oauthData.access_token,
+                expires_in: validateResponse.data.expires_in,
+                username: oauthData.username,
                 channel: channel
             });
 
         } catch (validationError) {
             if (validationError.response?.status === 401) {
                 // Try to refresh token automatically
-                if (config.oauth.refresh_token) {
+                if (oauthData.refresh_token) {
                     try {
                         const refreshResponse = await axios.post('https://id.twitch.tv/oauth2/token', {
                             grant_type: 'refresh_token',
-                            refresh_token: config.oauth.refresh_token,
+                            refresh_token: oauthData.refresh_token,
                             client_id: TWITCH_CLIENT_ID,
                             client_secret: TWITCH_CLIENT_SECRET
                         }, {
                             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
                         });
 
-                        // Update config with new tokens
-                        config.oauth.access_token = refreshResponse.data.access_token;
-                        config.oauth.refresh_token = refreshResponse.data.refresh_token;
-                        config.oauth.updated_at = new Date().toISOString();
-                        await saveChannelConfig(channel, config);
+                        // Update OAuth data with new tokens
+                        await setChannelOAuth(channel, {
+                            ...oauthData,
+                            access_token: refreshResponse.data.access_token,
+                            refresh_token: refreshResponse.data.refresh_token,
+                            expires_in: refreshResponse.data.expires_in
+                        });
 
                         console.log(`Auto-refreshed OAuth token for channel: ${channel}`);
 
                         res.json({
                             access_token: refreshResponse.data.access_token,
-                            username: config.oauth.username,
+                            expires_in: refreshResponse.data.expires_in,
+                            username: oauthData.username,
                             channel: channel,
                             refreshed: true
                         });
@@ -2144,7 +2233,7 @@ module.exports = { loadChannelConfig, saveChannelConfig };
 
 // Auto-renewal service (unchanged)
 const RENEWAL_CHECK_INTERVAL = 30 * 60 * 1000; // Check every 30 minutes
-const RENEWAL_THRESHOLD = 2 * 60 * 60; // Renew if less than 2 hours remaining
+const RENEWAL_THRESHOLD = 30 * 60; // Renew if less than 30 minutes remaining
 
 class TokenRenewalService {
     constructor() {
