@@ -396,11 +396,12 @@ async function main() {
                 config.apps.push({
                   name: sanitizedUser,
                   script: `${process.env.BOT_FULL_PATH}/channels/${sanitizedUser}.js`,
+                  node_args: '--expose-gc',
                   log_date_format: 'YYYY-MM-DD HH:mm:ss',
-                  max_memory_restart: '100M',
+                  max_memory_restart: '150M',
                   watch: [`${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json`],
                   watch_delay: 2000,
-                  ignore_watch: ['node_modules', 'logs', '*.log'],
+                  ignore_watch: ['node_modules', 'logs', '*.log', 'oauth.json'],
                   watch_options: {
                     followSymlinks: false
                   }
@@ -416,10 +417,15 @@ module.exports = {
     {
       name: '${sanitizedUser}',
       script: '${process.env.BOT_FULL_PATH}/channels/${sanitizedUser}.js',
-      log_date_format: "YYYY-MM-DD",
-      max_memory_restart: "100M",
-      max_restarts: "3",
-      min_uptime: "5000"
+      node_args: '--expose-gc',
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      max_memory_restart: "150M",
+      watch: ['${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json'],
+      watch_delay: 2000,
+      ignore_watch: ['node_modules', 'logs', '*.log', 'oauth.json'],
+      watch_options: {
+        followSymlinks: false
+      }
     }
   ]
 }`;
@@ -431,7 +437,7 @@ module.exports = {
               }
 
               // SECURITY: Safe PM2 start command with watch enabled
-              exec(`pm2 start "${outputPath}" --name "${sanitizedUser}" --watch "${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json" --watch-delay 2000 --ignore-watch "node_modules,logs,*.log" --max-memory-restart 100M --log-date-format "YYYY-MM-DD HH:mm:ss"`, (error, stdout, stderr) => {
+              exec(`pm2 start "${outputPath}" --name "${sanitizedUser}" --node-args="--expose-gc" --watch "${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json" --watch-delay 2000 --ignore-watch "node_modules,logs,*.log,oauth.json" --max-memory-restart 150M --log-date-format "YYYY-MM-DD HH:mm:ss"`, (error, stdout, stderr) => {
                 if (error) {
                   console.log(`error: ${error.message}`);
                   return;
@@ -682,11 +688,12 @@ module.exports = {
           appsConfig.push(`    {
       name: '${channelname}',
       script: '${process.env.BOT_FULL_PATH}/channels/${channelname}.js',
-      log_date_format: 'YYYY-MM-DD',
-      max_memory_restart: '100M',
+      node_args: '--expose-gc',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      max_memory_restart: '150M',
       watch: ['${configPath}'],
       watch_delay: 2000,
-      ignore_watch: ['node_modules', 'logs', '*.log'],
+      ignore_watch: ['node_modules', 'logs', '*.log', 'oauth.json'],
       watch_options: {
         followSymlinks: false
       }

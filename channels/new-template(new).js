@@ -16,9 +16,8 @@ async function main() {
   const { ChatClient } = require('@twurple/chat');
   const { ApiClient } = require('@twurple/api');
   const { StaticAuthProvider } = require('@twurple/auth');
+  const axios = require('axios');
 
-  // Import the EventSub manager
-  const { CustomRewardsEventSubManager } = require(`${process.env.BOT_FULL_PATH}/custom-rewards-eventsub.js`);
 
   // SECURITY: Validate channel name to prevent path traversal
   function validateChannelName(channelName) {
@@ -144,8 +143,6 @@ async function main() {
   const chatClient = new ChatClient({ authProvider: botAuthProvider });
   const apiClient = new ApiClient({ authProvider: botAuthProvider });
 
-  // Create EventSub manager instance
-  const redemptionManager = new CustomRewardsEventSubManager();
 
   // Connect to chat
   console.log(`[${getTimestamp()}] info: Connecting to Twitch chat...`);
@@ -153,95 +150,36 @@ async function main() {
   await chatClient.join(channelName);
   console.log(`[${getTimestamp()}] info: Joined #${channelName}`);
 
-  // Initialize EventSub for redemptions if enabled
+  // Channel point redemptions handled by separate EventSub service
   if (channelConfig.redemptionEnabled) {
-    console.log(`[${getTimestamp()}] info: Initializing channel point redemption EventSub...`);
-    redemptionManager.initializeChannelEventSub(channelName, chatClient)
-      .then(success => {
-        if (success) {
-          console.log(`[${getTimestamp()}] info: ✅ EventSub active for channel point redemptions`);
-        } else {
-          console.log(`[${getTimestamp()}] warning: ❌ EventSub failed to initialize for redemptions`);
-        }
-      })
-      .catch(error => {
-        console.log(`[${getTimestamp()}] error: EventSub initialization failed:`, error.message);
-      });
+    console.log(`[${getTimestamp()}] info: ✅ Channel point redemptions enabled - managed by EventSub service`);
   } else {
     console.log(`[${getTimestamp()}] info: Channel point redemptions disabled for ${channelName}`);
   }
 
-  // Smart token expiry-based EventSub reconnection
-  let tokenExpiryTimeout = null;
-
-  async function scheduleEventSubReconnection() {
-    try {
-      if (!channelConfig.redemptionEnabled) return;
-      
-      // Get current broadcaster token with expiry info
-      const response = await fetch(`http://localhost:3001/auth/token?channel=${channelName}`);
-      if (!response.ok) return;
-      
-      const tokenData = await response.json();
-      const expiresInSeconds = tokenData.expires_in || 14400; // Default 4 hours
-      
-      // Clear any existing timeout
-      if (tokenExpiryTimeout) {
-        clearTimeout(tokenExpiryTimeout);
-      }
-      
-      // Check if token has less than 30 minutes remaining - skip scheduling if so
-      if (expiresInSeconds <= 1800) {
-        console.log(`[${getTimestamp()}] info: 📅 Token expires in ${Math.floor(expiresInSeconds/60)} minutes - too close to expiry, will retry scheduling in 30 minutes`);
-        setTimeout(() => scheduleEventSubReconnection(), 30 * 60 * 1000); // Retry in 30 minutes
-        return;
-      }
-      
-      // Calculate when oauth-service.js will refresh (30 minutes before expiry)
-      const refreshWillHappenIn = (expiresInSeconds - 1800) * 1000; // Convert to milliseconds
-      
-      // Schedule reconnection 30 seconds after the refresh should happen
-      const reconnectIn = refreshWillHappenIn + (30 * 1000);
-      
-      console.log(`[${getTimestamp()}] info: 📅 Token expires in ${Math.floor(expiresInSeconds/3600)}h ${Math.floor((expiresInSeconds%3600)/60)}m`);
-      console.log(`[${getTimestamp()}] info: 🔄 EventSub reconnection scheduled in ${Math.floor(reconnectIn/1000/60)} minutes`);
-      
-      tokenExpiryTimeout = setTimeout(async () => {
-        console.log(`[${getTimestamp()}] info: ⏰ Scheduled EventSub reconnection triggered`);
-        
-        // Wait a bit more to ensure oauth-service.js has refreshed
-        await new Promise(resolve => setTimeout(resolve, 10000)); // 10 second buffer
-        
-        // Stop current EventSub
-        await redemptionManager.stopChannelEventSub(channelName);
-        
-        // Reconnect with new token
-        const success = await redemptionManager.initializeChannelEventSub(channelName, chatClient);
-        
-        if (success) {
-          console.log(`[${getTimestamp()}] info: ✅ EventSub reconnected with refreshed token`);
-          // Schedule next reconnection
-          setTimeout(() => scheduleEventSubReconnection(), 60000); // Re-schedule in 1 minute
-        } else {
-          console.log(`[${getTimestamp()}] error: ❌ EventSub reconnection failed, will retry in 5 minutes`);
-          setTimeout(() => scheduleEventSubReconnection(), 5 * 60 * 1000);
-        }
-        
-      }, Math.max(reconnectIn, 60000)); // Minimum 1 minute delay
-      
-    } catch (error) {
-      console.log(`[${getTimestamp()}] error: Failed to schedule EventSub reconnection:`, error.message);
-      // Fallback: try again in 10 minutes
-      setTimeout(() => scheduleEventSubReconnection(), 10 * 60 * 1000);
-    }
-  }
-
-  // Initialize smart reconnection scheduling
-  setTimeout(scheduleEventSubReconnection, 30 * 1000); // Start after 30 seconds
 
   // Sleep/delay function
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // Helper function to trigger EventSub reconnection
+  async function triggerEventSubReconnection() {
+    try {
+      console.log(`[${getTimestamp()}] info: Triggering EventSub reconnection for ${channelName}...`);
+      const response = await axios.post('http://localhost:3003/reconnect', {
+        channels: [channelName]
+      }, {
+        timeout: 5000,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.status === 200) {
+        console.log(`[${getTimestamp()}] info: ✅ EventSub reconnection triggered successfully for ${channelName}`);
+      }
+    } catch (error) {
+      console.log(`[${getTimestamp()}] warning: Failed to trigger EventSub reconnection: ${error.message}`);
+    }
   }
 
   // Get game information using API
@@ -290,13 +228,9 @@ async function main() {
       channelConfig.redemptionEnabled = true;
 
       if (saveChannelConfig(channelName, channelConfig)) {
-        // Try to initialize EventSub immediately
-        const success = await redemptionManager.initializeChannelEventSub(channelName, chatClient);
-        if (success) {
-          return { success: true, message: "Channel point redemptions enabled! EventSub is now active. Make sure you have a timeout reward set up." };
-        } else {
-          return { success: false, message: "Redemptions enabled in config but EventSub failed to start. Check OAuth token at https://mr-ai.dev/auth" };
-        }
+        // Trigger EventSub reconnection to activate redemption monitoring
+        await triggerEventSubReconnection();
+        return { success: true, message: "Channel point redemptions enabled! Managed by EventSub service. Make sure you have a timeout reward set up." };
       } else {
         return { success: false, message: "Failed to save configuration" };
       }
@@ -307,18 +241,16 @@ async function main() {
       channelConfig.redemptionRewardId = null;
       channelConfig.redemptionTimeoutDuration = 60;
 
-      // Stop EventSub for this channel
-      await redemptionManager.stopChannelEventSub(channelName);
-
       if (saveChannelConfig(channelName, channelConfig)) {
-        return { success: true, message: "Redemption disabled! EventSub stopped." };
+        // Trigger EventSub reconnection to stop redemption monitoring
+        await triggerEventSubReconnection();
+        return { success: true, message: "Redemption disabled! EventSub service will stop monitoring this channel." };
       } else {
         return { success: false, message: "Failed to save configuration" };
       }
     },
 
     getStatus() {
-      const eventSubStatus = redemptionManager.getStatus();
       return {
         channel: channelName,
         moderationEnabled: channelConfig.moderationEnabled,
@@ -329,7 +261,6 @@ async function main() {
         redemptionEnabled: channelConfig.redemptionEnabled,
         redemptionRewardId: channelConfig.redemptionRewardId,
         redemptionTimeoutDuration: channelConfig.redemptionTimeoutDuration,
-        eventSubActive: eventSubStatus.activeChannels.includes(channelName),
         excludedCommands: channelConfig.excludedCommands || []
       };
     }
@@ -417,7 +348,6 @@ async function main() {
             `Mode: ${status.chatOnly ? 'Chat Only' : 'Full Features'} | ` +
             `Bot OAuth: ${status.botOAuth ? 'Active' : 'Missing'} | ` +
             `Redemptions: ${status.redemptionEnabled ? 'Enabled' : 'Disabled'} | ` +
-            `EventSub: ${status.eventSubActive ? 'Active' : 'Inactive'} | ` +
             `Excluded Commands: ${status.excludedCommands.length}`
           );
           break;
@@ -458,11 +388,10 @@ async function main() {
           break;
 
         case 'redemption-status':
-          const eventSubStatus = redemptionManager.getStatus();
           await chatClient.say(channel,
-            `EventSub Status - Active Channels: ${eventSubStatus.activeChannels.length} | ` +
-            `Listeners: ${eventSubStatus.listenerCount} | ` +
-            `This Channel: ${eventSubStatus.activeChannels.includes(channelName) ? 'Active' : 'Inactive'}`
+            `Redemption Status: ${channelConfig.redemptionEnabled ? 'Enabled' : 'Disabled'} | ` +
+            `Managed by EventSub service | ` +
+            `Check service logs for EventSub status`
           );
           break;
 
@@ -805,12 +734,49 @@ async function main() {
 
   console.log(`[${getTimestamp()}] info: External moderation logging enabled - All external mod actions will be logged to console`);
 
+  // Memory cleanup function
+  function performMemoryCleanup() {
+    try {
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+        console.log(`[${getTimestamp()}] info: Manual garbage collection triggered`);
+      }
+      
+      // Log memory usage
+      const memUsage = process.memoryUsage();
+      const memUsageMB = {
+        rss: Math.round(memUsage.rss / 1024 / 1024),
+        heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+        external: Math.round(memUsage.external / 1024 / 1024)
+      };
+      
+      console.log(`[${getTimestamp()}] info: Memory usage - RSS: ${memUsageMB.rss}MB, Heap Used: ${memUsageMB.heapUsed}MB, Heap Total: ${memUsageMB.heapTotal}MB, External: ${memUsageMB.external}MB`);
+      
+      // Clear require cache for bot-commands (but keep core modules)
+      Object.keys(require.cache).forEach(key => {
+        if (key.includes('/bot-commands/') && !key.includes('node_modules')) {
+          delete require.cache[key];
+        }
+      });
+      
+    } catch (error) {
+      console.log(`[${getTimestamp()}] warning: Memory cleanup error: ${error.message}`);
+    }
+  }
+
+  // Set up periodic memory cleanup (every 15 minutes)
+  const memoryCleanupInterval = setInterval(performMemoryCleanup, 15 * 60 * 1000);
+
   // Handle disconnection gracefully
   process.on('SIGINT', async () => {
     console.log(`[${getTimestamp()}] info: Received SIGINT, shutting down gracefully...`);
 
-    // Stop EventSub listeners
-    await redemptionManager.stopAll();
+    // Clear intervals
+    if (memoryCleanupInterval) {
+      clearInterval(memoryCleanupInterval);
+    }
 
     await chatClient.quit();
     console.log(`[${getTimestamp()}] info: Mr-AI-is-Here bot shut down complete`);

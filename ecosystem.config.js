@@ -25,6 +25,14 @@ module.exports = {
       watch: ["oauth-service.js"],
       log_date_format: "YYYY-MM-DD HH:mm:ss",
       max_memory_restart: '200M'
+    },
+    {
+      name: "EventSub Manager",
+      script: "eventsub-service.js",
+      cwd: __dirname,
+      watch: ["eventsub-service.js"],
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      max_memory_restart: '200M'
     }
   ]
 }

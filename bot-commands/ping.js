@@ -18,9 +18,6 @@ const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW = 15000; // 15 seconds
 const MAX_REQUESTS = 2; // Max 2 requests per 15 seconds
 
-// Bot start time for uptime calculation
-const botStartTime = Date.now();
-
 // Rate limiting check
 function checkRateLimit(username) {
   const now = Date.now();
@@ -38,9 +35,9 @@ function checkRateLimit(username) {
   return true; // Not rate limited
 }
 
-// Format uptime duration
-function formatUptime(ms) {
-  const seconds = Math.floor(ms / 1000);
+// Format uptime duration from seconds
+function formatUptime(totalSeconds) {
+  const seconds = Math.floor(totalSeconds);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
@@ -64,9 +61,8 @@ exports.ping = async function ping(client, message, channel, tags) {
     }
     
     try {
-        const startTime = Date.now();
-        const uptime = Date.now() - botStartTime;
-        const responseTime = Date.now() - startTime;
+        // Get process uptime in seconds
+        const uptime = process.uptime();
         
         // Basic pong response with minimal info
         client.say(channel, `@${tags.username}, pong! 🏓 Uptime: ${formatUptime(uptime)}`);

@@ -645,6 +645,10 @@ app.get('/auth/callback', async (req, res) => {
         // Save channel config (without OAuth data)
         await saveChannelConfig(channelName, config);
 
+        // Trigger EventSub reconnection for newly generated tokens
+        const tokenRenewalService = new TokenRenewalService();
+        await tokenRenewalService.triggerEventSubReconnections([channelName]);
+
         res.send(`
             <h1>✅ OAuth Success!</h1>
             <p>OAuth tokens have been successfully generated for your channel!</p>
@@ -793,6 +797,11 @@ app.get('/auth/refresh', requireAuth, async (req, res) => {
         });
 
         console.log(`OAuth token refreshed successfully for channel: ${username}`);
+        
+        // Trigger EventSub reconnection for manually refreshed channel
+        const tokenRenewalService = new TokenRenewalService();
+        await tokenRenewalService.triggerEventSubReconnections([username]);
+        
         res.send(`
             <h1>✅ Token Refreshed Successfully!</h1>
             <p>Your OAuth access token has been refreshed for channel: <strong>${username}</strong></p>
@@ -850,6 +859,12 @@ app.get('/auth/revoke', requireAuth, async (req, res) => {
         }
 
         console.log(`OAuth token revoked successfully for channel: ${username}`);
+        
+        // Trigger EventSub disconnection for revoked channel
+        // (This will attempt reconnection but fail due to invalid token, effectively disconnecting)
+        const tokenRenewalService = new TokenRenewalService();
+        await tokenRenewalService.triggerEventSubReconnections([username]);
+        
         res.send(`
             <h1>✅ Token Revoked Successfully!</h1>
             <p>Your OAuth access token has been revoked for channel: <strong>${username}</strong></p>
@@ -951,6 +966,10 @@ app.get('/auth/token', async (req, res) => {
                         });
 
                         console.log(`Auto-refreshed OAuth token for channel: ${channel}`);
+                        
+                        // Trigger EventSub reconnection for auto-refreshed channel
+                        const tokenRenewalService = new TokenRenewalService();
+                        await tokenRenewalService.triggerEventSubReconnections([channel]);
 
                         res.json({
                             access_token: refreshResponse.data.access_token,
@@ -2262,32 +2281,37 @@ class TokenRenewalService {
         try {
             console.log('Checking tokens for auto-renewal...');
 
-            const files = await fs.readdir(CHANNELS_DIR);
-            const channels = files
-                .filter(file => file.endsWith('.json'))
-                .map(file => file.replace('.json', ''));
+            // Load OAuth data from separate oauth.json file
+            const oauthData = await loadOAuthData();
+            if (!oauthData?.channels) {
+                console.log('No OAuth data found, skipping renewal check');
+                return;
+            }
 
+            const channels = Object.keys(oauthData.channels);
             let renewedCount = 0;
             let checkedCount = 0;
+            const renewedChannels = [];
 
             for (const channel of channels) {
                 try {
-                    const config = await loadChannelConfig(channel);
+                    const channelOAuth = oauthData.channels[channel];
 
-                    if (!config?.oauth?.access_token) {
+                    if (!channelOAuth?.access_token) {
                         continue;
                     }
 
                     checkedCount++;
 
-                    const shouldRenew = await this.shouldRenewToken(config.oauth.access_token);
+                    const shouldRenew = await this.shouldRenewToken(channelOAuth.access_token);
 
                     if (shouldRenew) {
                         console.log(`Auto-renewing token for channel: ${channel}`);
-                        const renewed = await this.renewToken(channel, config);
+                        const renewed = await this.renewToken(channel, channelOAuth);
 
                         if (renewed) {
                             renewedCount++;
+                            renewedChannels.push(channel);
                             console.log(`✅ Auto-renewed token for ${channel}`);
                         } else {
                             console.log(`❌ Failed to auto-renew token for ${channel}`);
@@ -2301,6 +2325,9 @@ class TokenRenewalService {
 
             if (renewedCount > 0) {
                 console.log(`Auto-renewal complete: ${renewedCount}/${checkedCount} tokens renewed`);
+                
+                // Trigger EventSub reconnections for renewed channels
+                await this.triggerEventSubReconnections(renewedChannels);
             } else if (checkedCount > 0) {
                 console.log(`Auto-renewal check complete: ${checkedCount} tokens checked, none needed renewal`);
             }
@@ -2328,32 +2355,72 @@ class TokenRenewalService {
         }
     }
 
-    async renewToken(channelName, config) {
+    async renewToken(channelName, channelOAuth) {
         try {
-            if (!config.oauth.refresh_token) {
+            if (!channelOAuth.refresh_token) {
                 console.log(`No refresh token available for ${channelName}`);
                 return false;
             }
 
             const response = await axios.post('https://id.twitch.tv/oauth2/token', {
                 grant_type: 'refresh_token',
-                refresh_token: config.oauth.refresh_token,
+                refresh_token: channelOAuth.refresh_token,
                 client_id: TWITCH_CLIENT_ID,
                 client_secret: TWITCH_CLIENT_SECRET
             }, {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
             });
 
-            config.oauth.access_token = response.data.access_token;
-            config.oauth.refresh_token = response.data.refresh_token;
-            config.oauth.updated_at = new Date().toISOString();
+            // Update OAuth data in separate oauth.json file
+            await setChannelOAuth(channelName, {
+                ...channelOAuth,
+                access_token: response.data.access_token,
+                refresh_token: response.data.refresh_token,
+                expires_in: response.data.expires_in,
+                updated_at: new Date().toISOString()
+            });
 
-            await saveChannelConfig(channelName, config);
             return true;
 
         } catch (error) {
             console.error(`Failed to auto-renew token for ${channelName}:`, error.response?.data || error.message);
             return false;
+        }
+    }
+
+    async triggerEventSubReconnections(renewedChannels) {
+        if (renewedChannels.length === 0) return;
+
+        console.log(`🔄 Triggering EventSub reconnections for channels: ${renewedChannels.join(', ')}`);
+        
+        // Call EventSub service to trigger reconnections
+        try {
+            const response = await axios.post('http://localhost:3003/reconnect', {
+                channels: renewedChannels
+            }, {
+                timeout: 10000,
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.status === 200) {
+                console.log(`✅ Successfully triggered EventSub reconnections for: ${renewedChannels.join(', ')}`);
+                
+                // Log individual results
+                const results = response.data.results;
+                for (const [channel, result] of Object.entries(results)) {
+                    if (result.success) {
+                        console.log(`  ✅ ${channel}: EventSub reconnected successfully`);
+                    } else {
+                        console.log(`  ❌ ${channel}: EventSub reconnection failed - ${result.error || 'unknown error'}`);
+                    }
+                }
+            } else {
+                console.log(`⚠️ Unexpected response from EventSub service: ${response.status}`);
+            }
+            
+        } catch (error) {
+            console.log(`❌ Failed to trigger EventSub reconnections: ${error.message}`);
+            // This is not a critical failure for token renewal, so continue
         }
     }
 }
