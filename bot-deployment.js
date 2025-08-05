@@ -25,28 +25,8 @@ async function main() {
   // Connect to the channel specified using the settings found in the configurations
   client.connect().catch(console.error);
 
-  // NEW: Initialize token refresh system
-  async function initializeTokenRefresh() {
-    console.log(`${getTimestamp()}: Initializing token refresh system...`);
-    
-    // Initial token validation
-    const isValid = await validateBotToken();
-    if (!isValid) {
-      await refreshBotTokens();
-    }
-
-    // Set up periodic validation (every 12 hours)
-    setInterval(async () => {
-      console.log(`${getTimestamp()}: Performing periodic token validation...`);
-      const isValid = await validateBotToken();
-      if (!isValid) {
-        await refreshBotTokens();
-      }
-    }, 12 * 60 * 60 * 1000); // 12 hours
-  }
-
-  // Start token refresh system
-  initializeTokenRefresh().catch(console.error);
+  // Token refresh system disabled - using static auth only
+  console.log(`${getTimestamp()}: Token refresh system disabled - using static auth`);
 
   // Sleep/delay function
   function sleep(ms) {
@@ -1338,32 +1318,14 @@ ${appsConfig.join(',\n')}
       updateConfigs();
     }
 
-    // NEW: Manual token refresh command
+    // Manual token refresh disabled - using static auth only
     if (message.split(" ")[0] === "!refreshtoken" && isModUp) {
-      client.say(channel, "🔄 Manually refreshing bot tokens...");
-      const success = await refreshBotTokens();
-      if (success) {
-        client.say(channel, "✅ Bot tokens refreshed successfully! shared-tokens.json and .env updated.");
-      } else {
-        client.say(channel, "❌ Token refresh failed. Check logs for details.");
-      }
+      client.say(channel, "❌ Token refresh disabled - using static auth. Update .env manually and restart bots.");
     }
 
-    // NEW: Token status command
+    // Token status command - static auth version
     if (message.split(" ")[0] === "!tokenstatus" && isModUp) {
-      try {
-        const sharedTokenPath = `${process.env.BOT_FULL_PATH}/shared-tokens.json`;
-        if (fs.existsSync(sharedTokenPath)) {
-          const sharedTokenData = JSON.parse(fs.readFileSync(sharedTokenPath, 'utf8'));
-          const updatedAt = new Date(sharedTokenData.updatedAt);
-          const hoursAgo = Math.floor((Date.now() - updatedAt.getTime()) / (1000 * 60 * 60));
-          client.say(channel, `🔐 Bot tokens last updated: ${hoursAgo} hours ago by ${sharedTokenData.updatedBy}`);
-        } else {
-          client.say(channel, "❌ shared-tokens.json not found - using .env token only");
-        }
-      } catch (error) {
-        client.say(channel, "❌ Error checking token status");
-      }
+      client.say(channel, "🔐 Using static auth from .env file - no automatic refresh");
     }
 
     if (message.split(" ")[0] === "!help" && isModUp) {

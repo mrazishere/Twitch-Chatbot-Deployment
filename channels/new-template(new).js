@@ -24,12 +24,12 @@ async function main() {
     if (!channelName || typeof channelName !== 'string') {
       return false;
     }
-    
+
     // Block path traversal attempts
     if (channelName.includes('..') || channelName.includes('/') || channelName.includes('\\') || channelName.includes('\0')) {
       return false;
     }
-    
+
     // Twitch username validation: 4-25 chars, alphanumeric + underscore only
     const twitchUsernameRegex = /^[a-zA-Z0-9_]{4,25}$/;
     return twitchUsernameRegex.test(channelName);
@@ -42,7 +42,7 @@ async function main() {
       console.log(`[${getTimestamp()}] error: Invalid channel name: ${channelName}`);
       return defaultConfig;
     }
-    
+
     const configPath = `${process.env.BOT_FULL_PATH}/channel-configs/${channelName}.json`;
     const defaultConfig = {
       channelName: channelName,
@@ -80,7 +80,7 @@ async function main() {
       console.log(`[${getTimestamp()}] error: Invalid channel name for save: ${channelName}`);
       return false;
     }
-    
+
     const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
     const configPath = `${configDir}/${channelName}.json`;
 
@@ -102,27 +102,9 @@ async function main() {
   // Load configuration for this channel
   const channelConfig = loadChannelConfig(channelName);
 
-  // Function to get current token (from shared file or .env fallback)
-  function getCurrentToken() {
-    try {
-      // Try to read from shared token file first
-      const sharedTokenPath = `${process.env.BOT_FULL_PATH}/shared-tokens.json`;
-      if (fs.existsSync(sharedTokenPath)) {
-        const sharedTokenData = JSON.parse(fs.readFileSync(sharedTokenPath, 'utf8'));
-        console.log(`[${getTimestamp()}] info: Using shared token (updated: ${sharedTokenData.updatedAt})`);
-        return sharedTokenData.accessToken;
-      }
-    } catch (error) {
-      console.log(`[${getTimestamp()}] warning: Could not read shared token file, falling back to .env: ${error.message}`);
-    }
-    
-    // Fallback to .env file
-    console.log(`[${getTimestamp()}] info: Using .env token as fallback`);
-    return process.env.TWITCH_OAUTH.replace('oauth:', '');
-  }
-
-  // Get current token from shared system
-  const botOAuthToken = getCurrentToken();
+  // Get token directly from .env file only
+  console.log(`[${getTimestamp()}] info: Using .env token for static auth`);
+  const botOAuthToken = process.env.TWITCH_OAUTH.replace('oauth:', '');
 
   // Create auth provider using current token
   const botAuthProvider = new StaticAuthProvider(
@@ -173,7 +155,7 @@ async function main() {
         timeout: 5000,
         headers: { 'Content-Type': 'application/json' }
       });
-      
+
       if (response.status === 200) {
         console.log(`[${getTimestamp()}] info: ✅ EventSub reconnection triggered successfully for ${channelName}`);
       }
@@ -275,6 +257,66 @@ async function main() {
     console.log(`[${getTimestamp()}] info: partyMatchmaking.js not found, skipping`);
   }
 
+  // Load all bot commands at startup (prevents memory leak)
+  const commands = {};
+  const glob = require("glob");
+  console.log(`[${getTimestamp()}] info: Loading bot commands at startup...`);
+
+  function loadBotCommands() {
+    const excludedCommands = channelConfig.excludedCommands || [];
+    const loadedCommands = {};
+
+    glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`).forEach(file => {
+      try {
+        const functionName = file.split('/').pop().replace('.js', '');
+
+        // Skip if command is in the excluded list
+        if (excludedCommands.includes(functionName)) {
+          console.log(`[${getTimestamp()}] info: Skipping excluded command: ${functionName}`);
+          return;
+        }
+
+        const commandExports = require(file);
+        if (typeof commandExports[functionName] === 'function') {
+          loadedCommands[functionName] = commandExports[functionName];
+          console.log(`[${getTimestamp()}] info: Loaded command: ${functionName}`);
+        }
+      } catch (error) {
+        console.log(`[${getTimestamp()}] warning: Failed to load command from ${file}: ${error.message}`);
+      }
+    });
+
+    return loadedCommands;
+  }
+
+  // Load commands once at startup
+  Object.assign(commands, loadBotCommands());
+
+  // Function to reload commands (used when excluded commands change)
+  function reloadCommands() {
+    // Clear existing commands
+    Object.keys(commands).forEach(key => delete commands[key]);
+    // Reload with current configuration
+    Object.assign(commands, loadBotCommands());
+    console.log(`[${getTimestamp()}] info: Commands reloaded due to configuration change`);
+  }
+
+  // Function to reload channel config from disk (live reload)
+  function reloadChannelConfig() {
+    try {
+      const newConfig = loadChannelConfig(channelName);
+      // Update all config properties
+      Object.keys(newConfig).forEach(key => {
+        channelConfig[key] = newConfig[key];
+      });
+      console.log(`[${getTimestamp()}] info: Channel config reloaded from disk`);
+      return true;
+    } catch (error) {
+      console.log(`[${getTimestamp()}] error: Failed to reload channel config: ${error.message}`);
+      return false;
+    }
+  }
+
   // Handle raid events
   chatClient.onRaid(async (channel, user, raidInfo) => {
     const viewers = raidInfo.viewerCount;
@@ -354,22 +396,38 @@ async function main() {
 
         case 'enable':
           const enableResult = await configCommands.enableModeration();
-          await chatClient.say(channel, enableResult.message);
+          await chatClient.say(channel, `${enableResult.message} Restarting bot...`);
+          if (enableResult.success) {
+            console.log(`[${getTimestamp()}] info: Moderation enabled - restarting bot via process.exit(0)`);
+            setTimeout(() => process.exit(0), 1000); // PM2 will restart automatically
+          }
           break;
 
         case 'disable':
           const disableResult = await configCommands.disableModeration();
-          await chatClient.say(channel, disableResult.message);
+          await chatClient.say(channel, `${disableResult.message} Restarting bot...`);
+          if (disableResult.success) {
+            console.log(`[${getTimestamp()}] info: Moderation disabled - restarting bot via process.exit(0)`);
+            setTimeout(() => process.exit(0), 1000); // PM2 will restart automatically
+          }
           break;
 
         case 'redemption':
           const subCommand = args[2]?.toLowerCase();
           if (subCommand === 'enable') {
             const redemptionEnableResult = await configCommands.enableRedemption();
-            await chatClient.say(channel, redemptionEnableResult.message);
+            await chatClient.say(channel, `${redemptionEnableResult.message} Restarting bot...`);
+            if (redemptionEnableResult.success) {
+              console.log(`[${getTimestamp()}] info: Redemption enabled - restarting bot via process.exit(0)`);
+              setTimeout(() => process.exit(0), 1000); // PM2 will restart automatically
+            }
           } else if (subCommand === 'disable') {
             const redemptionDisableResult = await configCommands.disableRedemption();
-            await chatClient.say(channel, redemptionDisableResult.message);
+            await chatClient.say(channel, `${redemptionDisableResult.message} Restarting bot...`);
+            if (redemptionDisableResult.success) {
+              console.log(`[${getTimestamp()}] info: Redemption disabled - restarting bot via process.exit(0)`);
+              setTimeout(() => process.exit(0), 1000); // PM2 will restart automatically
+            }
           } else if (subCommand === 'duration') {
             const newDuration = parseInt(args[3]);
             if (newDuration && newDuration > 0 && newDuration <= 1209600) { // Max 14 days
@@ -414,10 +472,11 @@ async function main() {
               await chatClient.say(channel, `Invalid username format: ${rawTargetUser}. Use only letters, numbers, and underscores.`);
               break;
             }
-            
+
             if (!channelConfig.specialUsers.includes(targetUser)) {
               channelConfig.specialUsers.push(targetUser);
               if (saveChannelConfig(channelName, channelConfig)) {
+                reloadChannelConfig(); // Live reload the config
                 await chatClient.say(channel, `Added ${targetUser} as a special user.`);
               } else {
                 await chatClient.say(channel, "Failed to save special user.");
@@ -432,11 +491,12 @@ async function main() {
               await chatClient.say(channel, `Invalid username format: ${rawTargetUser}. Use only letters, numbers, and underscores.`);
               break;
             }
-            
+
             const index = channelConfig.specialUsers.indexOf(targetUser);
             if (index > -1) {
               channelConfig.specialUsers.splice(index, 1);
               if (saveChannelConfig(channelName, channelConfig)) {
+                reloadChannelConfig(); // Live reload the config
                 await chatClient.say(channel, `Removed ${targetUser} from special users.`);
               } else {
                 await chatClient.say(channel, "Failed to remove special user.");
@@ -466,10 +526,11 @@ async function main() {
               await chatClient.say(channel, `Invalid command name: ${rawCommandName}. Use only letters, numbers, underscores, and hyphens.`);
               break;
             }
-            
+
             if (!channelConfig.excludedCommands.includes(commandName)) {
               channelConfig.excludedCommands.push(commandName);
               if (saveChannelConfig(channelName, channelConfig)) {
+                reloadCommands(); // Reload commands to apply exclusion
                 await chatClient.say(channel, `Command "${commandName}" has been disabled for this channel.`);
               } else {
                 await chatClient.say(channel, "Failed to save excluded command.");
@@ -484,11 +545,12 @@ async function main() {
               await chatClient.say(channel, `Invalid command name: ${rawCommandName}. Use only letters, numbers, underscores, and hyphens.`);
               break;
             }
-            
+
             const index = channelConfig.excludedCommands.indexOf(commandName);
             if (index > -1) {
               channelConfig.excludedCommands.splice(index, 1);
               if (saveChannelConfig(channelName, channelConfig)) {
+                reloadCommands(); // Reload commands to apply re-enablement
                 await chatClient.say(channel, `Command "${commandName}" has been re-enabled for this channel.`);
               } else {
                 await chatClient.say(channel, "Failed to remove excluded command.");
@@ -509,24 +571,25 @@ async function main() {
         // Location configuration for forex and timezone commands
         case 'location':
           const locationAction = args[2]?.toLowerCase();
-          
+
           if (locationAction === 'set') {
             const rawLocation = args.slice(3).join(' '); // Allow multi-word countries like "united states"
-            
+
             if (!rawLocation) {
               await chatClient.say(channel, "Usage: !config location set [country name] (e.g., !config location set united states)");
               break;
             }
-            
+
             // Validate location input
             const location = rawLocation.toLowerCase().trim();
             if (!/^[a-zA-Z\s\-']{2,50}$/.test(location)) {
               await chatClient.say(channel, "Invalid location. Use only letters, spaces, and hyphens (e.g., 'united states', 'south korea').");
               break;
             }
-            
+
             channelConfig['irl-location'] = location;
             if (saveChannelConfig(channelName, channelConfig)) {
+              reloadChannelConfig(); // Live reload the config
               await chatClient.say(channel, `Location set to: ${location}. This will be used for forex auto-conversion and timezone detection.`);
             } else {
               await chatClient.say(channel, "Failed to save location setting.");
@@ -537,6 +600,7 @@ async function main() {
           } else if (locationAction === 'clear') {
             delete channelConfig['irl-location'];
             if (saveChannelConfig(channelName, channelConfig)) {
+              reloadChannelConfig(); // Live reload the config
               await chatClient.say(channel, "Location cleared.");
             } else {
               await chatClient.say(channel, "Failed to clear location.");
@@ -580,9 +644,6 @@ async function main() {
         isCommand = true;
       }
 
-      // Load and execute commands for ALL messages (not just commands starting with !)
-      const commands = {};
-      const glob = require("glob");
       // Get excluded commands from channel config
       const excludedCommands = channelConfig.excludedCommands || [];
 
@@ -592,22 +653,8 @@ async function main() {
         return; // Stop processing this command entirely
       }
 
-      // Load all available commands (excluding the excluded ones)
-      glob.sync(`${process.env.BOT_FULL_PATH}/bot-commands/*.js`).forEach(file => {
-        const commandExports = require(file);
-        const functionName = file.split('/').pop().replace('.js', '');
-
-        // Skip if command is in the excluded list
-        if (excludedCommands.includes(functionName)) {
-          return;
-        }
-
-        if (typeof commandExports[functionName] === 'function') {
-          commands[functionName] = commandExports[functionName];
-        }
-      });
-
       // Execute ALL command functions for ALL messages (they handle their own filtering)
+      // Commands are now loaded once at startup instead of per-message
       Object.keys(commands).forEach(commandName => {
         const commandFunction = commands[commandName];
         const tmiCompatibleTags = {
@@ -742,7 +789,7 @@ async function main() {
         global.gc();
         console.log(`[${getTimestamp()}] info: Manual garbage collection triggered`);
       }
-      
+
       // Log memory usage
       const memUsage = process.memoryUsage();
       const memUsageMB = {
@@ -751,16 +798,16 @@ async function main() {
         heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
         external: Math.round(memUsage.external / 1024 / 1024)
       };
-      
+
       console.log(`[${getTimestamp()}] info: Memory usage - RSS: ${memUsageMB.rss}MB, Heap Used: ${memUsageMB.heapUsed}MB, Heap Total: ${memUsageMB.heapTotal}MB, External: ${memUsageMB.external}MB`);
-      
+
       // Clear require cache for bot-commands (but keep core modules)
       Object.keys(require.cache).forEach(key => {
         if (key.includes('/bot-commands/') && !key.includes('node_modules')) {
           delete require.cache[key];
         }
       });
-      
+
     } catch (error) {
       console.log(`[${getTimestamp()}] warning: Memory cleanup error: ${error.message}`);
     }
