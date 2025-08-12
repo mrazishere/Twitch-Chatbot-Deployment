@@ -315,7 +315,7 @@ async function main() {
 
               // SECURITY: Validate template and output file paths
               const channelsDir = `${process.env.BOT_FULL_PATH}/channels`;
-              const templatePath = validatePath(channelsDir, 'new-template(new).js');
+              const templatePath = validatePath(channelsDir, 'new-template-tmi.js');
               const outputPath = validatePath(channelsDir, `${sanitizedUser}.js`);
               
               if (!templatePath || !outputPath) {
@@ -574,7 +574,7 @@ module.exports = {
         fs.writeFileSync(`${testFile}.backup`, oldData, "utf8");
 
         // Read new template
-        const newTemplate = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template(new).js`, "utf8");
+        const newTemplate = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template-tmi.js`, "utf8");
 
         // Replace placeholder
         const newData = newTemplate.replace(/\$\$UPDATEHERE\$\$/g, testChannel);
@@ -652,11 +652,12 @@ module.exports = {
       files.forEach((file) => {
         if (file != "ecosystem.config.js" &&
           file != "new-template.js" &&
-          file != "new-template(new).js" &&
+          file != "new-template-tmi.js" &&
+          file != "new-template-twurple.js" &&
           file != ".gitignore" &&
           !file.endsWith('.backup')) {
 
-          const data = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template(new).js`, "utf8");
+          const data = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template-tmi.js`, "utf8");
           const channelname = file.replace(".js", "");
           const result = data.replace(/\$\$UPDATEHERE\$\$/g, channelname);
 
@@ -723,7 +724,8 @@ ${appsConfig.join(',\n')}
       const channelFiles = files.filter(file =>
         file != "ecosystem.config.js" &&
         file != "new-template.js" &&
-        file != "new-template(new).js" &&
+        file != "new-template-tmi.js" &&
+        file != "new-template-twurple.js" &&
         file != ".gitignore" &&
         !file.endsWith('.backup') &&
         file.endsWith('.js')
@@ -786,7 +788,7 @@ ${appsConfig.join(',\n')}
             }
 
             // Migrate
-            const newTemplate = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template(new).js`, "utf8");
+            const newTemplate = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template-tmi.js`, "utf8");
             const newData = newTemplate.replace(/\$\$UPDATEHERE\$\$/g, channelname);
             fs.writeFileSync(channelFile, newData, "utf8");
 

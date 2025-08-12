@@ -2428,6 +2428,379 @@ class TokenRenewalService {
 // Initialize renewal service
 const renewalService = new TokenRenewalService();
 
+// ===== 60-DAY BOT TOKEN MANAGEMENT SYSTEM =====
+const { exec } = require('child_process');
+
+class BotTokenManager {
+    constructor() {
+        this.envPath = path.join(__dirname, '.env');
+        this.checkInterval = null;
+    }
+
+    async start() {
+        console.log('🤖 Starting 60-Day Bot Token Manager...');
+        
+        // Check token status on startup
+        await this.checkBotToken();
+        
+        // Check every 12 hours
+        this.checkInterval = setInterval(() => {
+            this.checkBotToken();
+        }, 12 * 60 * 60 * 1000);
+    }
+
+    stop() {
+        if (this.checkInterval) {
+            clearInterval(this.checkInterval);
+            console.log('🤖 Bot Token Manager stopped');
+        }
+    }
+
+    async checkBotToken() {
+        try {
+            const token = process.env.TWITCH_OAUTH?.replace('oauth:', '');
+            if (!token) {
+                console.log('⚠️ No bot token found in .env file');
+                return;
+            }
+
+            const response = await axios.get('https://id.twitch.tv/oauth2/validate', {
+                headers: { 'Authorization': `OAuth ${token}` },
+                timeout: 5000
+            });
+
+            const data = response.data;
+            const daysLeft = Math.floor(data.expires_in / 86400);
+            
+            console.log(`🤖 Bot token expires in ${daysLeft} days (${data.expires_in} seconds)`);
+
+            if (daysLeft <= 7) {
+                console.log('🚨 BOT TOKEN RENEWAL REQUIRED - Less than 7 days remaining!');
+                console.log('🔗 Visit: https://mr-ai.dev/auth/bot-token to renew');
+            }
+
+        } catch (error) {
+            console.log('❌ Bot token validation failed:', error.response?.data || error.message);
+            console.log('🔗 Visit: https://mr-ai.dev/auth/bot-token to generate new token');
+        }
+    }
+
+    async updateBotToken(newToken) {
+        try {
+            // Read current .env file
+            const envContent = await fs.readFile(this.envPath, 'utf8');
+            
+            // Update TWITCH_OAUTH line
+            const updatedContent = envContent.replace(
+                /^TWITCH_OAUTH=.*$/m,
+                `TWITCH_OAUTH=oauth:${newToken}`
+            );
+
+            // Write back to .env
+            await fs.writeFile(this.envPath, updatedContent);
+            
+            console.log('✅ Bot token updated in .env file');
+            
+            // Restart all bots
+            await this.restartAllBots();
+            
+            // Re-read .env file to update process.env and check new token
+            require('dotenv').config();
+            setTimeout(() => {
+                this.checkBotToken();
+            }, 1000);
+            
+            return true;
+        } catch (error) {
+            console.log('❌ Failed to update bot token:', error.message);
+            return false;
+        }
+    }
+
+    async restartAllBots() {
+        return new Promise((resolve, reject) => {
+            console.log('🔄 Restarting all bot instances...');
+            
+            // Get list of all processes except OAuth Token Manager and CountD Overlay
+            exec('pm2 jlist', (listError, listStdout, listStderr) => {
+                if (listError) {
+                    console.log('❌ Failed to get process list:', listError.message);
+                    reject(listError);
+                    return;
+                }
+                
+                try {
+                    const processes = JSON.parse(listStdout);
+                    const botProcesses = processes
+                        .filter(p => p.name !== 'OAuth Token Manager' && p.name !== 'CountD Overlay' && p.name !== 'EventSub Manager')
+                        .map(p => `"${p.name}"`)
+                        .join(' ');
+                    
+                    if (!botProcesses) {
+                        console.log('✅ No bot processes to restart');
+                        resolve('No bot processes found');
+                        return;
+                    }
+                    
+                    exec(`pm2 restart ${botProcesses} --update-env`, (error, stdout, stderr) => {
+                        if (error) {
+                            console.log('❌ Failed to restart bots:', error.message);
+                            reject(error);
+                        } else {
+                            console.log('✅ All bots restarted successfully');
+                            console.log(stdout);
+                            resolve();
+                        }
+                    });
+                } catch (parseError) {
+                    console.log('❌ Failed to parse process list:', parseError.message);
+                    reject(parseError);
+                }
+            });
+        });
+    }
+}
+
+// Bot token management endpoints (separate from broadcaster OAuth)
+app.get('/auth/bot-token', (req, res) => {
+    const clientId = TWITCH_CLIENT_ID;
+    const redirectUri = 'https://mr-ai.dev/auth/bot-token-callback';
+    const scopes = 'chat:read+chat:edit+channel:read:subscriptions+moderator:manage:banned_users';
+    
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Bot Token Management</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #1a1a1a; color: #fff; }
+                .button { background: #9146ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0; }
+                .status { background: #333; padding: 15px; border-radius: 5px; margin: 10px 0; }
+                .warning { background: #ff6b35; padding: 10px; border-radius: 5px; margin: 10px 0; }
+                .success { background: #4caf50; padding: 10px; border-radius: 5px; margin: 10px 0; }
+                .info { background: #2196f3; padding: 10px; border-radius: 5px; margin: 10px 0; }
+            </style>
+        </head>
+        <body>
+            <h1>🤖 Bot Token Management (60-Day Implicit Flow)</h1>
+            
+            <div class="info">
+                <strong>ℹ️ Bot Owner Only:</strong> This manages the main bot token used by all bot instances.
+                <br><strong>Note:</strong> This is separate from broadcaster tokens used for channel point redemptions.
+            </div>
+            
+            <p>Current bot token status:</p>
+            <div id="status" class="status">Loading...</div>
+            
+            <a href="https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scopes}" class="button">
+                Generate New 60-Day Bot Token
+            </a>
+            
+            <h3>What happens when you generate a new token:</h3>
+            <ol>
+                <li>You'll be redirected to Twitch to authorize the bot account</li>
+                <li>New 60-day token will be generated using implicit flow</li>
+                <li>Token will be automatically saved to .env file</li>
+                <li>All bot instances will be restarted with new token</li>
+                <li>Bot will have chat permissions for all channels</li>
+            </ol>
+            
+            <div class="warning">
+                <strong>⚠️ Important:</strong> Make sure you're logged into the <strong>bot account</strong> (${process.env.TWITCH_USERNAME}) on Twitch before clicking the button above.
+            </div>
+            
+            <script>
+                // Function to refresh token status
+                function refreshTokenStatus() {
+                    fetch('/auth/bot-token-status')
+                        .then(r => r.json())
+                        .then(data => {
+                            const statusDiv = document.getElementById('status');
+                            if (data.valid) {
+                                const days = Math.floor(data.expires_in / 86400);
+                                const statusClass = days <= 7 ? 'warning' : 'success';
+                                statusDiv.className = 'status ' + statusClass;
+                                statusDiv.innerHTML = \`✅ Current token expires in <strong>\${days} days</strong> (Login: \${data.login})<br>Scopes: \${data.scopes.join(', ')}\`;
+                            } else {
+                                statusDiv.className = 'status warning';
+                                statusDiv.innerHTML = '❌ Current token is invalid or expired';
+                            }
+                        })
+                        .catch(() => {
+                            document.getElementById('status').innerHTML = '❌ Unable to check token status';
+                        });
+                }
+                
+                // Check current token status on page load
+                refreshTokenStatus();
+            </script>
+        </body>
+        </html>
+    `);
+});
+
+app.get('/auth/bot-token-callback', async (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Bot Token Processing</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #1a1a1a; color: #fff; }
+                .success { background: #4caf50; color: white; padding: 15px; border-radius: 5px; margin: 10px 0; }
+                .error { background: #f44336; color: white; padding: 15px; border-radius: 5px; margin: 10px 0; }
+                .processing { background: #ff9800; color: white; padding: 15px; border-radius: 5px; margin: 10px 0; }
+                .token-display { background: #333; padding: 15px; border-radius: 5px; margin: 10px 0; word-break: break-all; font-family: monospace; font-size: 12px; }
+            </style>
+        </head>
+        <body>
+            <h1>🤖 Bot Token Processing</h1>
+            <div id="result" class="processing">Processing new token...</div>
+            
+            <script>
+                // Extract token from URL fragment
+                const hash = window.location.hash.substring(1);
+                const params = new URLSearchParams(hash);
+                const token = params.get('access_token');
+                
+                if (token) {
+                    // Save token
+                    fetch('/auth/bot-token-save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: token })
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        const resultDiv = document.getElementById('result');
+                        if (data.success) {
+                            resultDiv.className = 'success';
+                            resultDiv.innerHTML = \`
+                                <h3>✅ Bot Token Updated Successfully!</h3>
+                                <p>Login: <strong>\${data.login}</strong></p>
+                                <p>Token expires in: <strong>\${Math.floor(data.expires_in / 86400)} days</strong></p>
+                                <p>Scopes: \${data.scopes.join(', ')}</p>
+                                <p>All bot instances are being restarted with the new token...</p>
+                                <div class="token-display">Token: \${token}</div>
+                                <p><a href="/auth/bot-token" style="color: #fff;">← Back to Bot Token Management</a></p>
+                            \`;
+                            
+                            // Refresh the status display on the main page
+                            setTimeout(() => {
+                                refreshTokenStatus();
+                            }, 2000);
+                        } else {
+                            resultDiv.className = 'error';
+                            resultDiv.innerHTML = \`
+                                <h3>❌ Failed to Update Token</h3>
+                                <p>Error: \${data.error}</p>
+                                <p><a href="/auth/bot-token" style="color: #fff;">← Try Again</a></p>
+                            \`;
+                        }
+                    })
+                    .catch(error => {
+                        document.getElementById('result').className = 'error';
+                        document.getElementById('result').innerHTML = \`
+                            <h3>❌ Error Processing Token</h3>
+                            <p>\${error.message}</p>
+                            <p><a href="/auth/bot-token" style="color: #fff;">← Try Again</a></p>
+                        \`;
+                    });
+                } else {
+                    document.getElementById('result').className = 'error';
+                    document.getElementById('result').innerHTML = \`
+                        <h3>❌ No Token Received</h3>
+                        <p>Authorization may have failed or been cancelled.</p>
+                        <p><a href="/auth/bot-token" style="color: #fff;">← Try Again</a></p>
+                    \`;
+                }
+            </script>
+        </body>
+        </html>
+    `);
+});
+
+app.get('/auth/bot-token-status', async (req, res) => {
+    try {
+        const token = process.env.TWITCH_OAUTH?.replace('oauth:', '');
+        if (!token) {
+            return res.json({ valid: false, error: 'No token found' });
+        }
+
+        const response = await axios.get('https://id.twitch.tv/oauth2/validate', {
+            headers: { 'Authorization': `OAuth ${token}` },
+            timeout: 5000
+        });
+
+        res.json({ 
+            valid: true, 
+            expires_in: response.data.expires_in,
+            login: response.data.login,
+            scopes: response.data.scopes
+        });
+    } catch (error) {
+        res.json({ valid: false, error: error.response?.data || error.message });
+    }
+});
+
+app.post('/auth/bot-token-save', async (req, res) => {
+    try {
+        const { token } = req.body;
+        
+        if (!token) {
+            return res.json({ success: false, error: 'No token provided' });
+        }
+
+        // Validate token first
+        const validateResponse = await axios.get('https://id.twitch.tv/oauth2/validate', {
+            headers: { 'Authorization': `OAuth ${token}` },
+            timeout: 5000
+        });
+
+        const tokenData = validateResponse.data;
+        
+        // Check if token has required scopes
+        const requiredScopes = ['chat:read', 'chat:edit', 'channel:read:subscriptions', 'moderator:manage:banned_users'];
+        const hasAllScopes = requiredScopes.every(scope => tokenData.scopes.includes(scope));
+        
+        if (!hasAllScopes) {
+            return res.json({ 
+                success: false, 
+                error: `Token missing required scopes. Has: ${tokenData.scopes.join(', ')}. Required: ${requiredScopes.join(', ')}` 
+            });
+        }
+
+        // Verify this is the correct bot account
+        if (tokenData.login.toLowerCase() !== process.env.TWITCH_USERNAME.toLowerCase()) {
+            return res.json({
+                success: false,
+                error: `Token is for wrong account. Expected: ${process.env.TWITCH_USERNAME}, Got: ${tokenData.login}`
+            });
+        }
+
+        // Update token in .env and restart bots
+        const success = await botTokenManager.updateBotToken(token);
+        
+        if (success) {
+            res.json({ 
+                success: true, 
+                expires_in: tokenData.expires_in,
+                login: tokenData.login,
+                scopes: tokenData.scopes
+            });
+        } else {
+            res.json({ success: false, error: 'Failed to update token in .env file' });
+        }
+        
+    } catch (error) {
+        console.log('Error saving bot token:', error.message);
+        res.status(500).json({ success: false, error: error.response?.data?.message || error.message });
+    }
+});
+
+// Initialize bot token manager
+const botTokenManager = new BotTokenManager();
+
 // Start the server
 app.listen(port, () => {
     console.log(`🔒 Secure Mr-AI-is-Here OAuth Manager listening at http://localhost:${port}`);
@@ -2436,17 +2809,22 @@ app.listen(port, () => {
 
     // Start auto-renewal service
     renewalService.start();
+    
+    // Start bot token manager
+    botTokenManager.start();
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
     console.log('Shutting down Secure Mr-AI-is-Here OAuth Manager...');
     renewalService.stop();
+    botTokenManager.stop();
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
     console.log('Shutting down Secure Mr-AI-is-Here OAuth Manager...');
     renewalService.stop();
+    botTokenManager.stop();
     process.exit(0);
 });

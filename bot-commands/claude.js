@@ -1128,6 +1128,5 @@ exports.claude = async function claude(client, message, channel, tags, context) 
     }
 };
 
-// Start memory cleanup timer (runs every 10 minutes)
-setInterval(performMemoryCleanup, CLEANUP_INTERVAL);
-console.log(`Memory cleanup timer started - runs every ${CLEANUP_INTERVAL / 60000} minutes`);
+// Memory cleanup is handled by the main bot process
+// Removed duplicate cleanup timer to prevent interference

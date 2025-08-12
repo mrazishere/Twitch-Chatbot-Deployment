@@ -505,12 +505,14 @@ exports.wordle = async function wordle(client, message, channel, tags) {
         }
         
         const avgGuesses = (channelStats.totalGuesses / channelStats.gamesPlayed).toFixed(1);
-        const topWinner = Object.entries(channelStats.winners)
-          .sort(([,a], [,b]) => b - a)[0];
+        const topWinners = Object.entries(channelStats.winners)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5);
         
         let statsMsg = `📊 Wordle Stats: ${channelStats.gamesPlayed} games played | Avg guesses: ${avgGuesses}`;
-        if (topWinner) {
-          statsMsg += ` | Top winner: @${topWinner[0]} (${topWinner[1]} wins)`;
+        if (topWinners.length > 0) {
+          const winnersText = topWinners.map(([name, wins]) => `@${name} (${wins})`).join(', ');
+          statsMsg += ` | Top 5: ${winnersText}`;
         }
         
         client.say(channel, `@${displayName}, ${statsMsg}`);
