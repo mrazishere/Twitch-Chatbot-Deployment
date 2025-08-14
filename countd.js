@@ -101,13 +101,20 @@ app.get('/countd/data', (req, res) => {
             // Filter and validate timer objects
             const timers = Object.values(countdData).filter(item => {
                 // Basic validation of timer object structure
-                return item && 
-                       typeof item === 'object' && 
-                       typeof item.channel === 'string' && 
-                       item.channel === channel &&
-                       typeof item.title === 'string' &&
-                       typeof item.startTime === 'number' &&
-                       typeof item.duration === 'number';
+                if (!(item && 
+                      typeof item === 'object' && 
+                      typeof item.channel === 'string' && 
+                      typeof item.title === 'string' &&
+                      typeof item.startTime === 'number' &&
+                      typeof item.duration === 'number')) {
+                    return false;
+                }
+                
+                // Normalize channel comparison (handle both "#channel" and "channel" formats)
+                const itemChannel = item.channel.startsWith('#') ? item.channel.slice(1) : item.channel;
+                const requestChannel = channel.startsWith('#') ? channel.slice(1) : channel;
+                
+                return itemChannel === requestChannel;
             });
 
             res.json(timers);
