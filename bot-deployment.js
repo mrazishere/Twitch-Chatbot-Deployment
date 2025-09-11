@@ -44,13 +44,13 @@ async function main() {
     if (!username || typeof username !== 'string') {
       return null;
     }
-    
+
     // Twitch usernames: 4-25 chars, alphanumeric + underscore only
     const twitchUsernameRegex = /^[a-zA-Z0-9_]{4,25}$/;
     if (!twitchUsernameRegex.test(username)) {
       return null;
     }
-    
+
     return username.toLowerCase(); // Return sanitized version
   }
 
@@ -59,18 +59,18 @@ async function main() {
     if (!fileName || typeof fileName !== 'string') {
       return null;
     }
-    
+
     // Remove any path traversal attempts but allow parentheses
     const sanitizedName = fileName.replace(/[^a-zA-Z0-9_.()-]/g, '');
-    
+
     // Ensure no path traversal
     const fullPath = path.resolve(basePath, sanitizedName);
     const normalizedBase = path.resolve(basePath);
-    
+
     if (!fullPath.startsWith(normalizedBase)) {
       return null; // Path traversal attempt detected
     }
-    
+
     return fullPath;
   }
 
@@ -82,10 +82,10 @@ async function main() {
       callback(new Error('Invalid search term'), '', '');
       return;
     }
-    
+
     // Use safe command construction with escaped quotes
     const safeCommand = `pm2 ls | grep "${sanitizedTerm}"`;
-    
+
     console.log(`Executing safe PM2 grep: ${safeCommand}`);
     exec(safeCommand, callback);
   }
@@ -97,7 +97,7 @@ async function main() {
       callback(new Error('Invalid process name'), '', '');
       return;
     }
-    
+
     const safeCommand = `pm2 restart "${sanitizedName}"`;
     console.log(`Executing safe PM2 restart: ${safeCommand}`);
     exec(safeCommand, callback);
@@ -107,14 +107,14 @@ async function main() {
   async function refreshBotTokens() {
     try {
       const sharedTokenPath = `${process.env.BOT_FULL_PATH}/shared-tokens.json`;
-      
+
       if (!fs.existsSync(sharedTokenPath)) {
         console.log(`${getTimestamp()}: shared-tokens.json not found, skipping refresh`);
         return false;
       }
 
       const sharedTokenData = JSON.parse(fs.readFileSync(sharedTokenPath, 'utf8'));
-      
+
       if (!sharedTokenData.refreshToken) {
         console.log(`${getTimestamp()}: No refresh token found in shared-tokens.json`);
         return false;
@@ -149,15 +149,15 @@ async function main() {
       if (fs.existsSync(envPath)) {
         let envContent = fs.readFileSync(envPath, 'utf8');
         const newOAuthValue = `oauth:${newAccessToken}`;
-        
+
         if (envContent.includes('TWITCH_OAUTH=')) {
           envContent = envContent.replace(/TWITCH_OAUTH=.*$/m, `TWITCH_OAUTH=${newOAuthValue}`);
         } else {
           envContent += `\nTWITCH_OAUTH=${newOAuthValue}`;
         }
-        
+
         fs.writeFileSync(envPath, envContent);
-        
+
         // Update process.env for current session
         process.env.TWITCH_OAUTH = newOAuthValue;
       }
@@ -192,7 +192,7 @@ async function main() {
 
       const expiresIn = response.data.expires_in;
       console.log(`${getTimestamp()}: Bot token valid - expires in ${Math.floor(expiresIn / 3600)} hours`);
-      
+
       // If token expires in less than 24 hours, refresh it
       return expiresIn > 86400; // 24 hours in seconds
 
@@ -237,6 +237,80 @@ async function main() {
       timeoutUsers: [],
       excludedCommands: [] // NEW: Add excludedCommands to default config
     };
+  }
+
+  // Conduit management functions for shared conduit pool
+  async function loadAppAccessToken() {
+    try {
+      const tokenPath = `${process.env.BOT_FULL_PATH}/channel-configs/app-access-token.json`;
+      const tokenData = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+      return tokenData;
+    } catch (error) {
+      console.error(`${getTimestamp()}: Failed to load app access token:`, error.message);
+      throw error;
+    }
+  }
+
+  async function loadSharedConduits() {
+    try {
+      const conduitsPath = `${process.env.BOT_FULL_PATH}/channel-configs/shared-conduits.json`;
+      if (fs.existsSync(conduitsPath)) {
+        return JSON.parse(fs.readFileSync(conduitsPath, 'utf8'));
+      }
+      return { conduits: [] };
+    } catch (error) {
+      console.error(`${getTimestamp()}: Failed to load shared conduits:`, error.message);
+      return { conduits: [] };
+    }
+  }
+
+  async function saveSharedConduits(conduitsData) {
+    try {
+      const conduitsPath = `${process.env.BOT_FULL_PATH}/channel-configs/shared-conduits.json`;
+      fs.writeFileSync(conduitsPath, JSON.stringify(conduitsData, null, 2), 'utf8');
+    } catch (error) {
+      console.error(`${getTimestamp()}: Failed to save shared conduits:`, error.message);
+      throw error;
+    }
+  }
+
+  async function ensureSharedConduit() {
+    try {
+      const conduitsData = await loadSharedConduits();
+      
+      // Check if we have any available conduits
+      if (conduitsData.conduits && conduitsData.conduits.length > 0) {
+        console.log(`${getTimestamp()}: Using existing shared conduit: ${conduitsData.conduits[0].id}`);
+        return conduitsData.conduits[0];
+      }
+
+      // Create a new shared conduit
+      console.log(`${getTimestamp()}: Creating new shared conduit...`);
+      const appToken = await loadAppAccessToken();
+
+      const response = await axios.post('https://api.twitch.tv/helix/eventsub/conduits', {
+        shard_count: 1
+      }, {
+        headers: {
+          'Client-ID': process.env.TWITCH_CLIENTID,
+          'Authorization': `Bearer ${appToken.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const newConduit = response.data.data[0];
+      conduitsData.conduits = conduitsData.conduits || [];
+      conduitsData.conduits.push(newConduit);
+      conduitsData.lastUpdated = new Date().toISOString();
+
+      await saveSharedConduits(conduitsData);
+      console.log(`${getTimestamp()}: Created shared conduit: ${newConduit.id}`);
+      return newConduit;
+
+    } catch (error) {
+      console.error(`${getTimestamp()}: Failed to ensure shared conduit:`, error.message);
+      throw error;
+    }
   }
 
   // When the bot is on, it shall fetch the messages sent by user from the specified channel
@@ -292,7 +366,7 @@ async function main() {
               // SECURITY: Validate paths to prevent path traversal
               const configDir = `${process.env.BOT_FULL_PATH}/channel-configs`;
               const configPath = validatePath(configDir, `${sanitizedUser}.json`);
-              
+
               if (!configPath) {
                 console.log(`${currentTime}: Invalid path for user: ${sanitizedUser}`);
                 client.say(channel, `@${tags.username}, Invalid configuration path.`);
@@ -315,9 +389,9 @@ async function main() {
 
               // SECURITY: Validate template and output file paths
               const channelsDir = `${process.env.BOT_FULL_PATH}/channels`;
-              const templatePath = validatePath(channelsDir, 'new-template-tmi.js');
+              const templatePath = validatePath(channelsDir, 'new-template-hybrid-conduit.js');
               const outputPath = validatePath(channelsDir, `${sanitizedUser}.js`);
-              
+
               if (!templatePath || !outputPath) {
                 console.log(`${currentTime}: Invalid file paths for user: ${sanitizedUser}`);
                 client.say(channel, `@${tags.username}, Invalid file paths.`);
@@ -356,14 +430,14 @@ async function main() {
               try {
                 // SAFE APPROACH: Use eval to parse the module.exports, modify as object, then write back
                 const configContent = fs.readFileSync(ecosystemPath, 'utf8');
-                
+
                 // Create a safe evaluation environment
                 const moduleObj = { exports: {} };
                 const moduleCode = configContent.replace('module.exports', 'moduleObj.exports');
                 eval(moduleCode);
-                
+
                 const config = moduleObj.exports;
-                
+
                 // Check if user already exists
                 const existingApp = config.apps.find(app => app.name === sanitizedUser);
                 if (existingApp) {
@@ -371,7 +445,7 @@ async function main() {
                   client.say(channel, `@${tags.username}, bot for ${sanitizedUser} already exists!`);
                   return;
                 }
-                
+
                 // Add new app safely
                 config.apps.push({
                   name: sanitizedUser,
@@ -386,7 +460,7 @@ async function main() {
                     followSymlinks: false
                   }
                 });
-                
+
                 // Write back as proper module.exports format
                 const newConfigContent = `module.exports = ${JSON.stringify(config, null, 2)}`;
                 fs.writeFileSync(ecosystemPath, newConfigContent, 'utf8');
@@ -574,7 +648,7 @@ module.exports = {
         fs.writeFileSync(`${testFile}.backup`, oldData, "utf8");
 
         // Read new template
-        const newTemplate = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template-tmi.js`, "utf8");
+        const newTemplate = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template-hybrid-conduit.js`, "utf8");
 
         // Replace placeholder
         const newData = newTemplate.replace(/\$\$UPDATEHERE\$\$/g, testChannel);
@@ -652,12 +726,12 @@ module.exports = {
       files.forEach((file) => {
         if (file != "ecosystem.config.js" &&
           file != "new-template.js" &&
-          file != "new-template-tmi.js" &&
+          file != "new-template-hybrid-conduit.js" &&
           file != "new-template-twurple.js" &&
           file != ".gitignore" &&
           !file.endsWith('.backup')) {
 
-          const data = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template-tmi.js`, "utf8");
+          const data = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template-hybrid-conduit.js`, "utf8");
           const channelname = file.replace(".js", "");
           const result = data.replace(/\$\$UPDATEHERE\$\$/g, channelname);
 
@@ -724,7 +798,7 @@ ${appsConfig.join(',\n')}
       const channelFiles = files.filter(file =>
         file != "ecosystem.config.js" &&
         file != "new-template.js" &&
-        file != "new-template-tmi.js" &&
+        file != "new-template-hybrid-conduit.js" &&
         file != "new-template-twurple.js" &&
         file != ".gitignore" &&
         !file.endsWith('.backup') &&
@@ -788,7 +862,7 @@ ${appsConfig.join(',\n')}
             }
 
             // Migrate
-            const newTemplate = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template-tmi.js`, "utf8");
+            const newTemplate = fs.readFileSync(`${process.env.BOT_FULL_PATH}/channels/new-template-hybrid-conduit.js`, "utf8");
             const newData = newTemplate.replace(/\$\$UPDATEHERE\$\$/g, channelname);
             fs.writeFileSync(channelFile, newData, "utf8");
 

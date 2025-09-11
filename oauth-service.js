@@ -140,6 +140,76 @@ async function removeChannelOAuth(channelName) {
     }
 }
 
+// App Access Token functions for Chat Bot Badge
+const APP_ACCESS_TOKEN_FILE = path.join(CHANNELS_DIR, 'app-access-token.json');
+
+async function loadAppAccessToken() {
+    try {
+        if (await fs.access(APP_ACCESS_TOKEN_FILE).then(() => true).catch(() => false)) {
+            const data = await fs.readFile(APP_ACCESS_TOKEN_FILE, 'utf8');
+            return JSON.parse(data);
+        }
+        return null;
+    } catch (error) {
+        console.error('Error loading App Access Token:', error.message);
+        return null;
+    }
+}
+
+async function saveAppAccessToken(tokenData) {
+    try {
+        await fs.mkdir(CHANNELS_DIR, { recursive: true });
+        tokenData.created_at = tokenData.created_at || new Date().toISOString();
+        tokenData.updated_at = new Date().toISOString();
+        await fs.writeFile(APP_ACCESS_TOKEN_FILE, JSON.stringify(tokenData, null, 2));
+        console.log('App Access Token saved successfully');
+    } catch (error) {
+        console.error('Error saving App Access Token:', error.message);
+        throw error;
+    }
+}
+
+async function ensureAppAccessToken() {
+    try {
+        let appToken = await loadAppAccessToken();
+        
+        // Check if token exists and is not expired
+        if (appToken && appToken.access_token) {
+            const expiresAt = new Date(appToken.created_at).getTime() + (appToken.expires_in * 1000);
+            const isExpired = Date.now() > (expiresAt - 300000); // 5 minute buffer
+            
+            if (!isExpired) {
+                return appToken;
+            }
+        }
+        
+        // Generate new App Access Token
+        console.log('Generating new App Access Token for Chat Bot Badge...');
+        const response = await axios.post('https://id.twitch.tv/oauth2/token', {
+            client_id: TWITCH_CLIENT_ID,
+            client_secret: TWITCH_CLIENT_SECRET,
+            grant_type: 'client_credentials',
+            scope: '' // App Access Token doesn't need scopes
+        });
+        
+        const tokenData = {
+            access_token: response.data.access_token,
+            expires_in: response.data.expires_in,
+            token_type: response.data.token_type,
+            is_app_token: true,
+            created_at: new Date().toISOString()
+        };
+        
+        await saveAppAccessToken(tokenData);
+        console.log('✅ App Access Token generated successfully for Chat Bot Badge');
+        return tokenData;
+        
+    } catch (error) {
+        console.error('❌ Failed to ensure App Access Token:', error.message);
+        throw error;
+    }
+}
+
 // Helper function to send message to Twitch chat via bot
 async function sendToTwitchChat(channelName, message) {
     try {
@@ -186,7 +256,7 @@ function generateLoginAuthUrl() {
 
 // Helper function to generate OAuth URL for channel authorization
 //function generateChannelAuthUrl(channelName, scopes = 'chat:read chat:edit channel:moderate moderator:manage:banned_users channel:read:redemptions') {
-function generateChannelAuthUrl(channelName, scopes = 'channel:read:redemptions chat:read') {
+function generateChannelAuthUrl(channelName, scopes = 'channel:read:redemptions chat:read channel:bot') {
     // Add timestamp to force fresh authorization
     const timestamp = Date.now();
     const params = new URLSearchParams({
@@ -562,7 +632,7 @@ app.get('/auth/generate', requireAuth, async (req, res) => {
     }
 
     //const scopes = req.query.scopes || 'chat:read chat:edit channel:moderate moderator:manage:banned_users channel:read:redemptions';
-    const scopes = req.query.scopes || 'chat:read channel:read:redemptions';
+    const scopes = req.query.scopes || 'chat:read channel:read:redemptions channel:bot';
     const authUrl = generateChannelAuthUrl(username, scopes);
 
     console.log(`Starting OAuth flow for authenticated user: ${username}`);
@@ -2795,6 +2865,29 @@ app.post('/auth/bot-token-save', async (req, res) => {
     } catch (error) {
         console.log('Error saving bot token:', error.message);
         res.status(500).json({ success: false, error: error.response?.data?.message || error.message });
+    }
+});
+
+// App Access Token route for Chat Bot Badge
+app.get('/auth/generate-app-token', requireAuth, async (req, res) => {
+    try {
+        const appToken = await ensureAppAccessToken();
+        res.json({
+            success: true,
+            message: 'App Access Token generated successfully',
+            token: {
+                expires_in: appToken.expires_in,
+                created_at: appToken.created_at,
+                is_app_token: appToken.is_app_token
+            }
+        });
+    } catch (error) {
+        console.error('Error generating App Access Token:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate App Access Token',
+            error: error.message
+        });
     }
 });
 

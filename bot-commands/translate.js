@@ -18,6 +18,7 @@ const gtrans = require('googletrans').default;
 const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW = 60000; // 60 seconds
 const MAX_REQUESTS = 5; // Max 5 translation requests per minute
+const TWITCH_MESSAGE_LIMIT = 500; // Twitch message character limit
 
 // Rate limiting check
 function checkRateLimit(username) {
@@ -52,6 +53,14 @@ function isValidLanguageCode(code) {
     // Only allow alphanumeric characters and hyphens, max 10 chars
     const cleanCode = code.replace(/[^a-zA-Z0-9-]/g, '');
     return cleanCode.length > 0 && cleanCode.length <= 10 && tr_lang.hasOwnProperty(cleanCode);
+}
+
+// Truncate message to fit Twitch's character limit
+function truncateMessage(message) {
+    if (message.length <= TWITCH_MESSAGE_LIMIT) {
+        return message;
+    }
+    return message.substring(0, TWITCH_MESSAGE_LIMIT - 3) + '...';
 }
 
 // Safe translation with timeout
@@ -254,48 +263,33 @@ exports.translate = async function translate(client, message, channel, tags) {
             const res = await safeTranslate(txt, { to: ll[0] });
 
             if (cmd === 'pinyin') {
-                // Special handling for pinyin
-                try {
-                    const enres = await safeTranslate(txt, { to: 'en' });
-                    const pronunciation = res.pronunciation || 'N/A';
-                    const translation = enres.text || 'N/A';
-                    client.say(channel, `@${tags.username} | pinyin: ${pronunciation} | english: ${translation}`);
-                } catch (error) {
-                    console.error(`[TRANSLATE] Pinyin translation error for user ${tags.username}:`, {
-                        message: error.message,
-                        timestamp: new Date().toISOString()
-                    });
-                    client.say(channel, `@${tags.username}, translation service temporarily unavailable.`);
-                }
+                // Special handling for pinyin - only show pinyin pronunciation
+                const pronunciation = res.pronunciation || 'N/A';
+                const message = truncateMessage(`@${tags.username} | pinyin: ${pronunciation}`);
+                client.say(channel, message);
             } else if (cmd === 'romaji') {
-                // Special handling for romaji
-                try {
-                    const enres = await safeTranslate(txt, { to: 'en' });
-                    const pronunciation = res.pronunciation || 'N/A';
-                    const translation = enres.text || 'N/A';
-                    client.say(channel, `@${tags.username} | romaji: ${pronunciation} | english: ${translation}`);
-                } catch (error) {
-                    console.error(`[TRANSLATE] Romaji translation error for user ${tags.username}:`, {
-                        message: error.message,
-                        timestamp: new Date().toISOString()
-                    });
-                    client.say(channel, `@${tags.username}, translation service temporarily unavailable.`);
-                }
+                // Special handling for romaji - only show romaji pronunciation
+                const pronunciation = res.pronunciation || 'N/A';
+                const message = truncateMessage(`@${tags.username} | romaji: ${pronunciation}`);
+                client.say(channel, message);
             } else if (lazy === true) {
                 // Lazy mode sentence in english and also in requested language
                 const translation = res.text || 'Translation unavailable';
-                client.say(channel, `@${tags.username}, ${txt} / ${translation}`);
+                const message = truncateMessage(`@${tags.username}, ${txt} / ${translation}`);
+                client.say(channel, message);
             } else {
                 // Normal translation
                 const pronunciation = res.pronunciation || '';
                 const translation = res.text || 'Translation unavailable';
                 const connector = ll[1] || 'says';
                 
+                let message;
                 if (pronunciation && pronunciation !== translation) {
-                    client.say(channel, `@${tags.username} ${connector}: ${pronunciation}: ${translation}`);
+                    message = truncateMessage(`@${tags.username} ${connector}: ${pronunciation}: ${translation}`);
                 } else {
-                    client.say(channel, `@${tags.username} ${connector}: ${translation}`);
+                    message = truncateMessage(`@${tags.username} ${connector}: ${translation}`);
                 }
+                client.say(channel, message);
             }
 
         } catch (error) {

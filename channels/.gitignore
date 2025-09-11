@@ -1,4 +1,6 @@
 *
-!new-template.js
-!new-template(new).js
+!new-template-hybrid-conduit.js
+!new-template-hybrid.js
+!new-template-tmi.js
+!new-template-twurple.js
 !.gitignore
