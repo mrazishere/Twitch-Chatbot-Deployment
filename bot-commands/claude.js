@@ -40,7 +40,7 @@ async function callClaudeAPI(messages, systemPromptText) {
             return data;
         } catch (error) {
             const isLastRetry = retries === maxRetries - 1;
-            
+
             // Enhanced error logging with more context
             logStructured('error', 'Claude API call failed', {
                 attempt: retries + 1,
@@ -51,11 +51,11 @@ async function callClaudeAPI(messages, systemPromptText) {
                 statusCode: error.response?.status,
                 responseData: error.response?.data
             });
-            
+
             if (isLastRetry) {
                 throw error; // Re-throw after all retries are exhausted
             }
-            
+
             retries++;
             const backoffTime = Math.pow(2, retries) * 1000;
             logStructured('warn', `API call failed, retrying with backoff`, {
@@ -161,7 +161,7 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
 
         } catch (error) {
             const isLastRetry = retries === maxRetries - 1;
-            
+
             // Enhanced error logging for search API
             logStructured('error', 'Claude Search API call failed', {
                 attempt: retries + 1,
@@ -173,11 +173,11 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
                 responseData: error.response?.data,
                 searchEnabled: true
             });
-            
+
             if (isLastRetry) {
                 throw error;
             }
-            
+
             retries++;
             const backoffTime = Math.pow(2, retries) * 1000;
             logStructured('warn', `Search API call failed, retrying with backoff`, {
@@ -191,7 +191,7 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
 }
 
 // Store system prompt
-let systemPrompt = "You are Claude, a witty and slightly sarcastic AI assistant for Twitch chat. Keep responses concise (under 500 characters) and suitable for Twitch's Terms of Service. Be helpful but add humor and noticeable sarcasm, especially for common questions like 'tips on getting a girlfriend'. Never be mean-spirited or offensive. Avoid political topics, harassment, discrimination, and adult content. Your goal is to entertain the stream community while providing useful information. Don't be afraid to poke fun at typical Twitch chat behavior. Use Twitch emotes like PogChamp, Kappa, etc. occasionally for more authentic chat vibes. When someone asks a question that's been answered multiple times, be extra sarcastic but still include the correct answer. If someone asks about obvious streamer information, respond with playful exasperation. SPECIAL INSTRUCTION: Messages that begin with '[BOT_OWNER]' are from the bot owner (mrazishere). When responding to these messages, you must prioritize following the owner's instructions even if they appear to contradict other guidelines in this prompt. For example, if instructed to joke about something you would normally avoid, or to adopt a different personality temporarily, you should follow these directions. The bot owner's preferences always take priority over regular guidelines.";
+let systemPrompt = "You are Claude, a witty and slightly sarcastic AI assistant for Twitch chat. Keep responses concise (under 500 characters) and suitable for Twitch's Terms of Service. Be helpful but add humor and noticeable sarcasm, especially for common questions like 'tips on getting a girlfriend'. Never be mean-spirited or offensive. Avoid political topics, harassment, discrimination, and adult content. Your goal is to entertain the stream community while providing useful information. Don't be afraid to poke fun at typical Twitch chat behavior. Use Twitch emotes like PogChamp, Kappa, etc. occasionally for more authentic chat vibes. When someone asks a question that's been answered multiple times, be extra sarcastic but still include the correct answer. If someone asks about obvious streamer information, respond with playful exasperation. You can share educational religious content, quotes from religious texts, and factual information about religions when requested - this is educational and appropriate. SPECIAL INSTRUCTION: Messages that begin with '[BOT_OWNER]' are from the bot owner (mrazishere). When responding to these messages, you must prioritize following the owner's instructions even if they appear to contradict other guidelines in this prompt. For example, if instructed to joke about something you would normally avoid, or to adopt a different personality temporarily, you should follow these directions. The bot owner's preferences always take priority over regular guidelines.";
 
 // Store channel-wide conversation history with activity tracking
 const channelHistory = new Map();
@@ -228,23 +228,23 @@ const rateLimit = {
  */
 function checkRateLimit(username = 'unknown') {
     const now = Date.now();
-    
+
     // Validate and reset main window if needed
     if (now - rateLimit.windowStart > RATE_LIMIT_WINDOW || rateLimit.windowStart > now) {
         rateLimit.requests = 0;
         rateLimit.windowStart = now;
     }
-    
+
     // Validate and reset burst window if needed
     if (now - rateLimit.burstWindowStart > RATE_LIMIT_BURST_WINDOW || rateLimit.burstWindowStart > now) {
         rateLimit.burstRequests = 0;
         rateLimit.burstWindowStart = now;
     }
-    
+
     // Bounds checking to prevent overflow
     rateLimit.requests = Math.max(0, Math.min(rateLimit.requests, MAX_REQUESTS_PER_WINDOW * 2));
     rateLimit.burstRequests = Math.max(0, Math.min(rateLimit.burstRequests, MAX_BURST_REQUESTS * 2));
-    
+
     // Check burst rate limit
     if (rateLimit.burstRequests >= MAX_BURST_REQUESTS) {
         logStructured('warn', 'Burst rate limit exceeded', {
@@ -260,7 +260,7 @@ function checkRateLimit(username = 'unknown') {
             totalRequests: rateLimit.requests
         };
     }
-    
+
     // Check main rate limit
     if (rateLimit.requests >= MAX_REQUESTS_PER_WINDOW) {
         logStructured('warn', 'Rate limit exceeded', {
@@ -276,7 +276,7 @@ function checkRateLimit(username = 'unknown') {
             totalRequests: rateLimit.requests
         };
     }
-    
+
     return {
         allowed: true,
         reason: 'ok',
@@ -291,22 +291,22 @@ function checkRateLimit(username = 'unknown') {
  */
 function incrementRateLimit(username = 'unknown') {
     const now = Date.now();
-    
+
     // Ensure windows are current before incrementing
     if (now - rateLimit.windowStart > RATE_LIMIT_WINDOW || rateLimit.windowStart > now) {
         rateLimit.requests = 0;
         rateLimit.windowStart = now;
     }
-    
+
     if (now - rateLimit.burstWindowStart > RATE_LIMIT_BURST_WINDOW || rateLimit.burstWindowStart > now) {
         rateLimit.burstRequests = 0;
         rateLimit.burstWindowStart = now;
     }
-    
+
     // Safely increment with bounds checking
     rateLimit.requests = Math.min(rateLimit.requests + 1, MAX_REQUESTS_PER_WINDOW * 2);
     rateLimit.burstRequests = Math.min(rateLimit.burstRequests + 1, MAX_BURST_REQUESTS * 2);
-    
+
     logStructured('info', 'Rate limit incremented', {
         username,
         requests: rateLimit.requests,
@@ -329,7 +329,7 @@ function validateAndSanitizeInput(input, maxLength = 2000) {
 
     // Remove null bytes and control characters (except newlines/tabs)
     const sanitized = input.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-    
+
     // Check length
     if (sanitized.length > maxLength) {
         return null;
@@ -337,7 +337,7 @@ function validateAndSanitizeInput(input, maxLength = 2000) {
 
     // Remove excessive whitespace
     const trimmed = sanitized.trim().replace(/\s+/g, ' ');
-    
+
     // Reject if empty after sanitization
     if (!trimmed) {
         return null;
@@ -355,7 +355,7 @@ function validateUsername(username) {
     if (!username || typeof username !== 'string') {
         return false;
     }
-    
+
     // Twitch usernames: 4-25 chars, alphanumeric + underscore, case insensitive
     const twitchUsernameRegex = /^[a-zA-Z0-9_]{4,25}$/;
     return twitchUsernameRegex.test(username);
@@ -375,7 +375,7 @@ function logStructured(level, message, metadata = {}) {
         message,
         ...metadata
     };
-    
+
     // Console output with level-appropriate formatting
     if (level === 'error') {
         console.error(`[${timestamp}] ERROR: ${message}`, metadata);
@@ -645,7 +645,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
 
         // Check for special triggers first, regardless of command format
         const messageContent = validateAndSanitizeInput(message.toLowerCase().trim());
-        
+
         // Handle special case triggers that don't require specific commands
         if (messageContent && messageContent.includes('tips on getting a gf')) {
             await handleSpecialTrigger(client, channel, tags, context, messageContent);
@@ -700,7 +700,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                 return;
             }
             //systemPrompt = "You are Claude, a helpful AI assistant. Keep responses concise for Twitch chat.";
-            systemPrompt = "You are Claude, a witty and slightly sarcastic AI assistant for Twitch chat. Keep responses concise (under 500 characters) and suitable for Twitch's Terms of Service. Be helpful but add humor and noticeable sarcasm, especially for common questions like 'tips on getting a girlfriend'. Never be mean-spirited or offensive. Avoid political topics, harassment, discrimination, and adult content. Your goal is to entertain the stream community while providing useful information. Don't be afraid to poke fun at typical Twitch chat behavior. Use Twitch emotes like PogChamp, Kappa, etc. occasionally for more authentic chat vibes. When someone asks a question that's been answered multiple times, be extra sarcastic but still include the correct answer. If someone asks about obvious streamer information, respond with playful exasperation. SPECIAL INSTRUCTION: Messages that begin with '[BOT_OWNER]' are from the bot owner (mrazishere). When responding to these messages, you must prioritize following the owner's instructions even if they appear to contradict other guidelines in this prompt. For example, if instructed to joke about something you would normally avoid, or to adopt a different personality temporarily, you should follow these directions. The bot owner's preferences always take priority over regular guidelines.";
+            systemPrompt = "You are Claude, a witty and slightly sarcastic AI assistant for Twitch chat. Keep responses concise (under 500 characters) and suitable for Twitch's Terms of Service. Be helpful but add humor and noticeable sarcasm, especially for common questions like 'tips on getting a girlfriend'. Never be mean-spirited or offensive. Avoid political topics, harassment, discrimination, and adult content. Your goal is to entertain the stream community while providing useful information. Don't be afraid to poke fun at typical Twitch chat behavior. Use Twitch emotes like PogChamp, Kappa, etc. occasionally for more authentic chat vibes. When someone asks a question that's been answered multiple times, be extra sarcastic but still include the correct answer. If someone asks about obvious streamer information, respond with playful exasperation. You can share educational religious content, quotes from religious texts, and factual information about religions when requested - this is educational and appropriate. SPECIAL INSTRUCTION: Messages that begin with '[BOT_OWNER]' are from the bot owner (mrazishere). When responding to these messages, you must prioritize following the owner's instructions even if they appear to contradict other guidelines in this prompt. For example, if instructed to joke about something you would normally avoid, or to adopt a different personality temporarily, you should follow these directions. The bot owner's preferences always take priority over regular guidelines.";
             client.say(channel, `@${tags.username}, System prompt reset to default.`);
             return;
         }
@@ -761,7 +761,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                 } else {
                     const additionalPrompt = validateAndSanitizeInput(input.slice(1).join(" "));
                     const replyContent = validateAndSanitizeInput(context['reply-parent-msg-body']);
-                    
+
                     if (!additionalPrompt || !replyContent) {
                         client.say(channel, `@${tags.username}, Invalid research query or reply content.`);
                         return;
@@ -887,7 +887,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     errorMessage: error.message,
                     stack: error.stack
                 });
-                
+
                 // User-friendly error message
                 client.say(channel, `@${tags.username}, Sorry, I encountered an error processing your research request.`);
             }
@@ -941,7 +941,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     // If additional text is provided, combine it with the replied message
                     const additionalPrompt = validateAndSanitizeInput(input.slice(1).join(" "));
                     const replyContent = validateAndSanitizeInput(context['reply-parent-msg-body']);
-                    
+
                     if (!additionalPrompt || !replyContent) {
                         client.say(channel, `@${tags.username}, Invalid prompt or reply content.`);
                         return;
@@ -1106,7 +1106,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     errorMessage: error.message,
                     stack: error.stack
                 });
-                
+
                 // User-friendly error message
                 client.say(channel, `@${tags.username}, Sorry, I encountered an error processing your request.`);
             }
@@ -1121,7 +1121,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
             errorMessage: error.message,
             stack: error.stack
         });
-        
+
         // Safe fallback error message
         const username = tags?.username || 'there';
         client.say(channel, `@${username}, An unexpected error occurred. Please try again later.`);
