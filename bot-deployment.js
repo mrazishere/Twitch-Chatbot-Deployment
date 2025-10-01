@@ -726,7 +726,9 @@ module.exports = {
       files.forEach((file) => {
         if (file != "ecosystem.config.js" &&
           file != "new-template.js" &&
+          file != "new-template-hybrid.js" &&
           file != "new-template-hybrid-conduit.js" &&
+          file != "new-template-tmi.js" &&
           file != "new-template-twurple.js" &&
           file != ".gitignore" &&
           !file.endsWith('.backup')) {
@@ -798,7 +800,9 @@ ${appsConfig.join(',\n')}
       const channelFiles = files.filter(file =>
         file != "ecosystem.config.js" &&
         file != "new-template.js" &&
+        file != "new-template-hybrid.js" &&
         file != "new-template-hybrid-conduit.js" &&
+        file != "new-template-tmi.js" &&
         file != "new-template-twurple.js" &&
         file != ".gitignore" &&
         !file.endsWith('.backup') &&

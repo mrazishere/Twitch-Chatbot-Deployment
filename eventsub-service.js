@@ -2,6 +2,7 @@
 require('dotenv').config();
 const express = require('express');
 const { CustomRewardsEventSubManager } = require('./custom-rewards-eventsub.js');
+const { ConduitManager } = require('./conduit-manager.js');
 
 const app = express();
 const port = 3003;
@@ -11,6 +12,9 @@ app.use(express.json());
 
 // Create EventSub manager instance
 const eventSubManager = new CustomRewardsEventSubManager();
+
+// Create Conduit manager instance
+const conduitManager = new ConduitManager();
 
 // Store chat clients for each channel (we'll need to get these somehow)
 const chatClients = new Map();
@@ -134,6 +138,61 @@ app.post('/reconnect', async (req, res) => {
     }
 });
 
+// Conduit management endpoints
+app.get('/conduit', async (req, res) => {
+    try {
+        const conduit = await conduitManager.getOrCreateConduit();
+        res.json({
+            success: true,
+            conduit,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error(`[${getTimestamp()}] error: Failed to get conduit:`, error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/conduit/add-shard', async (req, res) => {
+    try {
+        const { sessionId } = req.body;
+
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        console.log(`[${getTimestamp()}] info: Adding WebSocket shard for session: ${sessionId}`);
+
+        const result = await conduitManager.addWebSocketShard(sessionId);
+
+        res.json({
+            success: true,
+            ...result,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error(`[${getTimestamp()}] error: Failed to add WebSocket shard:`, error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/conduit/verify', async (req, res) => {
+    try {
+        console.log(`[${getTimestamp()}] info: Verifying conduit...`);
+        const conduit = await conduitManager.getOrCreateConduit();
+
+        res.json({
+            success: true,
+            conduit,
+            message: 'Conduit verified and ready',
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error(`[${getTimestamp()}] error: Failed to verify conduit:`, error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Status endpoint
 app.get('/status', (req, res) => {
     const status = eventSubManager.getStatus();
@@ -157,10 +216,13 @@ app.get('/health', (req, res) => {
 app.listen(port, async () => {
     console.log(`[${getTimestamp()}] info: 🌐 EventSub Manager listening on port ${port}`);
     console.log(`[${getTimestamp()}] info: 🔗 Endpoints:`);
-    console.log(`[${getTimestamp()}] info:   POST /reconnect - Trigger EventSub reconnections`);
-    console.log(`[${getTimestamp()}] info:   GET  /status    - Get EventSub status`);
-    console.log(`[${getTimestamp()}] info:   GET  /health    - Health check`);
-    
+    console.log(`[${getTimestamp()}] info:   POST /reconnect        - Trigger EventSub reconnections`);
+    console.log(`[${getTimestamp()}] info:   GET  /status           - Get EventSub status`);
+    console.log(`[${getTimestamp()}] info:   GET  /health           - Health check`);
+    console.log(`[${getTimestamp()}] info:   GET  /conduit          - Get current conduit`);
+    console.log(`[${getTimestamp()}] info:   POST /conduit/add-shard - Add WebSocket shard (with self-healing)`);
+    console.log(`[${getTimestamp()}] info:   POST /conduit/verify   - Verify conduit exists`);
+
     // Initialize all enabled channels
     await initializeAllChannels();
 });

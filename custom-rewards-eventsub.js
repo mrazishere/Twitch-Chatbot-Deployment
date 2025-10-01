@@ -193,8 +193,12 @@ class CustomRewardsEventSubManager {
 
             // Start the listener
             console.log(`[${this.getTimestamp()}] ⭐ Starting EventSub listener...`);
-            await listener.start();
-            console.log(`[${this.getTimestamp()}] ⭐ ✅ EventSub listener started successfully`);
+            listener.start();
+            console.log(`[${this.getTimestamp()}] ⭐ ✅ EventSub listener start() called`);
+
+            // Give it a moment to connect
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            console.log(`[${this.getTimestamp()}] ⭐ ✅ EventSub listener should be connected now`);
 
             // Wait a moment then check connection status
             setTimeout(() => {

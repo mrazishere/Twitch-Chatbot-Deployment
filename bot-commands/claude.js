@@ -16,7 +16,7 @@ async function callClaudeAPI(messages, systemPromptText) {
                     'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
-                    model: "claude-3-5-sonnet-20241022", // Make sure this is consistent
+                    model: "claude-sonnet-4-20250514", // Make sure this is consistent
                     max_tokens: 1024,
                     system: systemPromptText,
                     messages: messages
