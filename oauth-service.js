@@ -7,13 +7,16 @@ const session = require('express-session');
 const crypto = require('crypto');
 
 const app = express();
-const port = 3001;
+const port = process.env.OAUTH_PORT || 3001;
 
 // Configuration
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENTID;
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENTSECRET;
-const REDIRECT_URI = 'https://mr-ai.dev/auth/callback';
-const LOGIN_REDIRECT_URI = 'https://mr-ai.dev/auth/login-callback';
+const OAUTH_DOMAIN = process.env.OAUTH_DOMAIN || 'localhost:3001';
+const BASE_URL = OAUTH_DOMAIN.startsWith('localhost') ? `http://${OAUTH_DOMAIN}` : `https://${OAUTH_DOMAIN}`;
+const REDIRECT_URI = `${BASE_URL}/auth/callback`;
+const LOGIN_REDIRECT_URI = `${BASE_URL}/auth/login-callback`;
+const BOT_SERVICE_PORT = process.env.BOT_SERVICE_PORT || 3003;
 const CHANNELS_DIR = path.join(__dirname, 'channel-configs');
 
 // Session configuration
@@ -305,23 +308,94 @@ app.get('/auth/login', (req, res) => {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Mr-AI-is-Here OAuth Manager</title>
             <style>
-                body { font-family: Arial, sans-serif; margin: 20px; background-color: #f8f9fa; }
-                .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-                h1 { color: #9146ff; text-align: center; margin-bottom: 20px; font-size: 24px; }
-                .login-section { text-align: center; padding: 20px; background-color: #f8f9fa; border-radius: 8px; margin: 15px 0; }
-                .auth-btn { background-color: #9146ff; color: white; border: none; padding: 15px 25px; font-size: 16px; cursor: pointer; border-radius: 6px; text-decoration: none; display: inline-block; width: 100%; max-width: 300px; box-sizing: border-box; }
-                .auth-btn:hover { background-color: #7c3aed; }
-                .info { background-color: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0; }
-                .security-note { background-color: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #28a745; }
-                
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+                    background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 20px;
+                }
+                .container {
+                    max-width: 700px;
+                    margin: 0 auto;
+                    background: rgba(30, 30, 45, 0.95);
+                    padding: 30px;
+                    border-radius: 24px;
+                    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+                    border: 1px solid rgba(102, 126, 234, 0.2);
+                }
+                h1 {
+                    color: #a5b4fc;
+                    text-align: center;
+                    margin-bottom: 30px;
+                    font-size: 28px;
+                    font-weight: 600;
+                }
+                h2 { color: #e2e8f0; font-size: 22px; margin-bottom: 15px; }
+                h3 { color: #a5b4fc; font-size: 18px; margin-bottom: 12px; }
+                .login-section {
+                    text-align: center;
+                    padding: 30px;
+                    background: rgba(20, 20, 35, 0.6);
+                    border-radius: 16px;
+                    margin: 20px 0;
+                    border: 1px solid rgba(102, 126, 234, 0.3);
+                }
+                .login-section p { color: #cbd5e1; margin: 15px 0 25px; line-height: 1.6; }
+                .auth-btn {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    border: none;
+                    padding: 16px 32px;
+                    font-size: 16px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    border-radius: 12px;
+                    text-decoration: none;
+                    display: inline-block;
+                    width: 100%;
+                    max-width: 350px;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                }
+                .auth-btn:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+                }
+                .info {
+                    background: rgba(20, 20, 35, 0.5);
+                    padding: 20px;
+                    border-radius: 12px;
+                    margin: 20px 0;
+                    border: 1px solid rgba(102, 126, 234, 0.2);
+                    color: #e2e8f0;
+                }
+                .info ul { padding-left: 24px; line-height: 1.8; margin-top: 10px; }
+                .info li { margin: 8px 0; }
+                .security-note {
+                    background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%);
+                    padding: 20px;
+                    border-radius: 12px;
+                    margin: 20px 0;
+                    border-left: 4px solid #10b981;
+                    color: #e2e8f0;
+                }
+                .security-note h3 { color: #10b981; }
+                .security-note ul { padding-left: 24px; line-height: 1.8; margin-top: 10px; }
+                .security-note li { margin: 8px 0; }
+
                 /* Mobile responsive */
                 @media (max-width: 768px) {
-                    body { margin: 10px; }
-                    .container { padding: 15px; }
-                    h1 { font-size: 20px; margin-bottom: 15px; }
-                    .login-section { padding: 15px; }
-                    .auth-btn { padding: 12px 20px; font-size: 16px; }
-                    .info, .security-note { padding: 12px; font-size: 14px; }
+                    body { padding: 10px; }
+                    .container { padding: 20px; }
+                    h1 { font-size: 24px; margin-bottom: 20px; }
+                    h2 { font-size: 20px; }
+                    .login-section { padding: 20px; }
+                    .auth-btn { padding: 14px 24px; max-width: 100%; }
+                    .info, .security-note { padding: 15px; font-size: 14px; }
                     ul { padding-left: 20px; }
                 }
             </style>
@@ -329,13 +403,13 @@ app.get('/auth/login', (req, res) => {
         <body>
             <div class="container">
                 <h1>🤖 Mr-AI-is-Here OAuth Manager</h1>
-                
+
                 <div class="login-section">
                     <h2>👋 Welcome!</h2>
                     <p>To manage your channel's Mr-AI-is-Here bot tokens, please sign in with your Twitch account.</p>
                     <a href="${authUrl}" class="auth-btn">🔐 Sign in with Twitch</a>
                 </div>
-                
+
                 <div class="security-note">
                     <h3>🔒 Secure Access</h3>
                     <ul>
@@ -344,7 +418,7 @@ app.get('/auth/login', (req, res) => {
                         <li>✅ Only you can see and control your channel's bot permissions</li>
                     </ul>
                 </div>
-                
+
                 <div class="info">
                     <h3>📝 What This Does</h3>
                     <ul>
@@ -450,14 +524,13 @@ async function showUserDashboard(username, res, userSession) {
             isNewChannel = true;
         }
 
-        let channelStatus = '';
         let actions = '';
 
         // Welcome message for new channels
         let welcomeMessage = '';
         if (isNewChannel) {
             welcomeMessage = `
-                <div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
+                <div class="welcome-message">
                     <h3>🎉 Welcome to Mr-AI-is-Here Bot!</h3>
                     <p>We've automatically created a configuration for your channel <strong>${username}</strong>.</p>
                     <p>Click "Generate OAuth Token" below to give Mr-AI-is-Here bot permission to operate in your channel.</p>
@@ -471,7 +544,7 @@ async function showUserDashboard(username, res, userSession) {
 
         // Check OAuth status from separate oauth.json file
         const oauthData = await getChannelOAuth(username);
-        
+
         if (oauthData && oauthData.access_token) {
             try {
                 const validateResponse = await axios.get('https://id.twitch.tv/oauth2/validate', {
@@ -486,10 +559,9 @@ async function showUserDashboard(username, res, userSession) {
                 `;
 
                 actions = `
-    <button onclick="window.location.href = '/auth/status'" style="background-color: #007bff; color: white; border: none; padding: 12px 20px; margin: 8px; cursor: pointer; border-radius: 6px; font-size: 16px;">📊 View Details</button>
-    <button onclick="if(confirm('Refresh your OAuth token?')) window.location.href = '/auth/refresh'" style="background-color: #28a745; color: white; border: none; padding: 12px 20px; margin: 8px; cursor: pointer; border-radius: 6px; font-size: 16px;">🔄 Refresh Token</button>
-    <button onclick="window.location.href = '/auth/generate'" style="background-color: #9146ff; color: white; border: none; padding: 12px 20px; margin: 8px; cursor: pointer; border-radius: 6px; font-size: 16px;">🔐 Re-authenticate</button>
-    <button onclick="if(confirm('Are you sure you want to revoke your OAuth token? This will disable the bot in your channel.')) window.location.href = '/auth/revoke'" style="background-color: #dc3545; color: white; border: none; padding: 12px 20px; margin: 8px; cursor: pointer; border-radius: 6px; font-size: 16px;">🗑️ Revoke Access</button>
+    <button class="btn-success" onclick="window.location.href = '/auth/refresh'">🔄 Refresh Token</button>
+    <button class="btn-primary" onclick="window.location.href = '/auth/generate'">🔐 Re-authenticate</button>
+    <button class="btn-danger" onclick="window.location.href = '/auth/revoke'">🗑️ Revoke Access</button>
 `;
 
             } catch (error) {
@@ -497,24 +569,24 @@ async function showUserDashboard(username, res, userSession) {
                     oauthStatus = '⚠️ OAuth Token Expired';
                     oauthDetails = `
                         <p><strong>Last updated:</strong> ${new Date(oauthData.updated_at).toLocaleString()}</p>
-                        <p style="color: #856404;">Your OAuth token has expired and needs to be refreshed or regenerated.</p>
+                        <p style="color: #f59e0b;">Your OAuth token has expired and needs to be refreshed or regenerated.</p>
                     `;
 
                     actions = `
-    <button onclick="if(confirm('Try to refresh your expired token?')) window.location.href = '/auth/refresh'" style="background-color: #ffc107; color: black; border: none; padding: 12px 20px; margin: 8px; cursor: pointer; border-radius: 6px; font-size: 16px;">🔄 Try Refresh</button>
-    <button onclick="window.location.href = '/auth/generate'" style="background-color: #9146ff; color: white; border: none; padding: 12px 20px; margin: 8px; cursor: pointer; border-radius: 6px; font-size: 16px;">🔐 Re-authenticate</button>
-    <button onclick="if(confirm('Remove the expired OAuth token?')) window.location.href = '/auth/revoke'" style="background-color: #dc3545; color: white; border: none; padding: 12px 20px; margin: 8px; cursor: pointer; border-radius: 6px; font-size: 16px;">🗑️ Remove Token</button>
+    <button class="btn-warning" onclick="window.location.href = '/auth/refresh'">🔄 Try Refresh</button>
+    <button class="btn-primary" onclick="window.location.href = '/auth/generate'">🔐 Re-authenticate</button>
+    <button class="btn-danger" onclick="window.location.href = '/auth/revoke'">🗑️ Remove Token</button>
 `;
                 }
             }
         } else {
             actions = `
-    <button onclick="window.location.href = '/auth/generate'" style="background-color: #9146ff; color: white; border: none; padding: 15px 25px; margin: 8px; cursor: pointer; border-radius: 6px; font-size: 18px;">🔐 Generate OAuth Token</button>
+    <button class="btn-primary" onclick="window.location.href = '/auth/generate'">🔐 Generate OAuth Token</button>
 `;
         }
 
-        channelStatus = `
-            <div style="background-color: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        const channelStatus = `
+            <div class="channel-status">
                 <h3>📋 Your Channel Status</h3>
                 <p><strong>Channel:</strong> ${config.channelName || username}</p>
                 <p><strong>Moderation Enabled:</strong> ${config.moderationEnabled ? 'Yes' : 'No'}</p>
@@ -525,92 +597,24 @@ async function showUserDashboard(username, res, userSession) {
             </div>
         `;
 
-        res.send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Mr-AI-is-Here OAuth Manager - ${username}</title>
-                <style>
-                    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f8f9fa; }
-                    .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-                    h1 { color: #9146ff; margin-bottom: 15px; font-size: 24px; }
-                    .user-info { background-color: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-                    .security-badge { background-color: #d4edda; padding: 10px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #28a745; }
-                    .actions { text-align: center; margin: 20px 0; }
-                    .actions button { margin: 8px 4px; }
-                    .info { background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin: 15px 0; }
-                    .logout { text-align: center; margin-top: 30px; }
-                    .logout a { color: #6c757d; text-decoration: none; margin: 0 10px; }
-                    .logout a:hover { text-decoration: underline; }
-                    
-                    /* Mobile responsive */
-                    @media (max-width: 768px) {
-                        body { margin: 10px; }
-                        .container { padding: 15px; }
-                        h1 { font-size: 20px; margin-bottom: 10px; }
-                        .user-info, .security-badge, .info { padding: 12px; font-size: 14px; }
-                        .actions { margin: 15px 0; }
-                        .actions button { 
-                            display: block; 
-                            width: 100%; 
-                            margin: 8px 0; 
-                            padding: 12px; 
-                            font-size: 14px; 
-                            box-sizing: border-box;
-                        }
-                        ul { padding-left: 20px; }
-                        .logout { margin-top: 20px; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>🤖 Mr-AI-is-Here OAuth Manager</h1>
-                    
-                    <div class="security-badge">
-                        <strong>🔒 Secure Session:</strong> You are securely authenticated and can only manage your own channel.
-                    </div>
-                    
-                    <div class="user-info">
-                        <p><strong>👤 Signed in as:</strong> ${userSession.display_name} (@${userSession.login})</p>
-                        <p><strong>📧 Email:</strong> ${userSession.email || 'Not provided'}</p>
-                        <p><strong>🕐 Session started:</strong> ${new Date(userSession.authenticated_at).toLocaleString()}</p>
-                    </div>
-                    
-                    ${welcomeMessage}
-                    ${channelStatus}
-                    
-                    <div class="actions">
-                        <h3>🔧 Manage Your Mr-AI-is-Here Bot</h3>
-                        ${actions}
-                    </div>
-                    
-                    <div class="info">
-                        <h3>ℹ️ About OAuth Tokens</h3>
-                        <ul>
-                            <li><strong>Generate:</strong> Create new OAuth tokens for Mr-AI-is-Here bot to access your channel</li>
-                            <li><strong>Refresh:</strong> Extend the life of existing tokens</li>
-                            <li><strong>Re-authenticate:</strong> Create completely new tokens with fresh permissions</li>
-                            <li><strong>Revoke:</strong> Remove Mr-AI-is-Here bot access from your channel completely</li>
-                        </ul>
-                        
-                        <h4>🔧 Default Configuration</h4>
-                        <ul>
-                            <li><strong>Moderation:</strong> ${config.moderationEnabled ? 'Enabled' : 'Disabled'} - Bot can moderate your chat</li>
-                            <li><strong>Chat Only:</strong> ${config.chatOnly ? 'Enabled' : 'Disabled'} - Bot only reads/writes chat</li>
-                            <li><strong>Redemptions:</strong> ${config.redemptionEnabled ? 'Enabled' : 'Disabled'} - Bot responds to channel point redemptions</li>
-                        </ul>
-                    </div>
-                    
-                    <div class="logout">
-                        <a href="/auth/claude">🤖 Claude</a> | 
-                        <a href="/auth/logout">🚪 Sign out</a>
-                    </div>
-                </div>
-            </body>
-            </html>
-        `);
+        // Load template
+        const templatePath = path.join(__dirname, 'views', 'dashboard.html');
+        let html = await fs.readFile(templatePath, 'utf8');
+
+        // Replace placeholders
+        html = html.replace(/{{USERNAME}}/g, username);
+        html = html.replace(/{{DISPLAY_NAME}}/g, userSession.display_name);
+        html = html.replace(/{{LOGIN}}/g, userSession.login);
+        html = html.replace(/{{EMAIL}}/g, userSession.email || 'Not provided');
+        html = html.replace(/{{SESSION_TIME}}/g, new Date(userSession.authenticated_at).toLocaleString());
+        html = html.replace(/{{WELCOME_MESSAGE}}/g, welcomeMessage);
+        html = html.replace(/{{CHANNEL_STATUS}}/g, channelStatus);
+        html = html.replace(/{{ACTIONS}}/g, actions);
+        html = html.replace(/{{MODERATION_STATUS}}/g, config.moderationEnabled ? 'Enabled' : 'Disabled');
+        html = html.replace(/{{CHAT_ONLY_STATUS}}/g, config.chatOnly ? 'Enabled' : 'Disabled');
+        html = html.replace(/{{REDEMPTION_STATUS}}/g, config.redemptionEnabled ? 'Enabled' : 'Disabled');
+
+        res.send(html);
 
     } catch (error) {
         res.status(500).send(`
@@ -645,19 +649,11 @@ app.get('/auth/callback', async (req, res) => {
 
     if (error) {
         console.error('OAuth authorization failed:', error);
-        return res.status(400).send(`
-            <h1>❌ Authorization Failed</h1>
-            <p>Error: ${error}</p>
-            <a href="/auth">Back to Dashboard</a>
-        `);
+        return res.redirect(`/auth?error=${encodeURIComponent(error)}`);
     }
 
     if (!state || !state.startsWith('channel_auth:')) {
-        return res.status(400).send(`
-            <h1>❌ Invalid Request</h1>
-            <p>Missing or invalid channel information.</p>
-            <a href="/auth">Back to Dashboard</a>
-        `);
+        return res.redirect('/auth?error=Invalid+request');
     }
 
     const stateParts = state.split(':');
@@ -667,11 +663,7 @@ app.get('/auth/callback', async (req, res) => {
         // Load existing channel config
         const config = await loadChannelConfig(channelName);
         if (!config) {
-            return res.status(404).send(`
-                <h1>❌ Channel Not Found</h1>
-                <p>No configuration found for channel: <strong>${channelName}</strong></p>
-                <a href="/auth">Back to Dashboard</a>
-            `);
+            return res.redirect('/auth?error=Channel+not+found');
         }
 
         // Exchange authorization code for access token
@@ -690,13 +682,7 @@ app.get('/auth/callback', async (req, res) => {
 
         // SECURITY: Verify the authenticating user matches the channel
         if (userInfo.login.toLowerCase() !== channelName.toLowerCase()) {
-            return res.status(403).send(`
-                <h1>🚫 Access Denied</h1>
-                <p>OAuth flow was for channel <strong>${channelName}</strong> but you authenticated as <strong>@${userInfo.login}</strong>.</p>
-                <p>You can only generate OAuth tokens for your own channel.</p>
-                <br>
-                <a href="/auth">Back to Your Dashboard</a>
-            `);
+            return res.redirect('/auth?error=Access+denied+-+channel+mismatch');
         }
 
         // Save OAuth data to separate oauth.json file
@@ -719,117 +705,19 @@ app.get('/auth/callback', async (req, res) => {
         const tokenRenewalService = new TokenRenewalService();
         await tokenRenewalService.triggerEventSubReconnections([channelName]);
 
-        res.send(`
-            <h1>✅ OAuth Success!</h1>
-            <p>OAuth tokens have been successfully generated for your channel!</p>
-            <br>
-            <p><strong>Channel:</strong> ${channelName}</p>
-            <p><strong>Authenticated as:</strong> ${userInfo.display_name} (@${userInfo.login})</p>
-            <p><strong>Token expires in:</strong> ${Math.floor(tokenData.expires_in / 3600)} hours</p>
-            <p><strong>Scopes:</strong> ${Array.isArray(tokenData.scope) ? tokenData.scope.join(', ') : tokenData.scope}</p>
-            <br>
-            <p>🎉 Mr-AI-is-Here bot now has permission to operate in your channel!</p>
-            <br>
-            <a href="/auth">Back to Your Dashboard</a>
-            <br><br>
-        `);
+        console.log(`✅ OAuth tokens generated successfully for ${channelName}`);
+        res.redirect('/auth?generated=true');
 
     } catch (err) {
         console.error('Token exchange failed:', err.response?.data || err.message);
-        res.status(500).send(`
-            <h1>❌ Token Generation Failed</h1>
-            <p>Error: ${err.message}</p>
-            <a href="/auth">Back to Dashboard</a>
-        `);
+        res.redirect(`/auth?error=${encodeURIComponent('Token generation failed: ' + err.message)}`);
     }
 });
 
 // OAuth status page (SECURE - user can only view their own channel)
-app.get('/auth/status', requireAuth, async (req, res) => {
-    const username = req.session.user.login;
-
-    try {
-        const config = await loadChannelConfig(username);
-
-        if (!config) {
-            return res.send(`
-                <h1>❌ Channel Status: ${username}</h1>
-                <p>Channel configuration not found.</p>
-                <a href="/auth">Back to Dashboard</a>
-            `);
-        }
-
-        // Check OAuth status from separate oauth.json file  
-        const oauthData = await getChannelOAuth(username);
-        
-        if (!oauthData || !oauthData.access_token) {
-            return res.send(`
-                <h1>📋 Channel Status: ${username}</h1>
-                <p>✅ Channel config exists</p>
-                <p>❌ No OAuth token found</p>
-                <br>
-                <a href="/auth/generate">Generate OAuth Token</a> | 
-                <a href="/auth">Back to Dashboard</a>
-            `);
-        }
-
-        // Validate token with Twitch
-        try {
-            const validateResponse = await axios.get('https://id.twitch.tv/oauth2/validate', {
-                headers: { 'Authorization': `Bearer ${oauthData.access_token}` }
-            });
-
-            res.send(`
-                <h1>✅ Channel Status: ${username}</h1>
-                
-                <h3>Channel Configuration</h3>
-                <p><strong>Channel Name:</strong> ${config.channelName || username}</p>
-                <p><strong>Moderator:</strong> ${config.moderatorUsername || 'Unknown'}</p>
-                <p><strong>Moderation Enabled:</strong> ${config.moderationEnabled ? 'Yes' : 'No'}</p>
-                <p><strong>Chat Only:</strong> ${config.chatOnly ? 'Yes' : 'No'}</p>
-                <p><strong>Redemptions Enabled:</strong> ${config.redemptionEnabled ? 'Yes' : 'No'}</p>
-                <p><strong>Last Updated:</strong> ${config.lastUpdated ? new Date(config.lastUpdated).toLocaleString() : 'Unknown'}</p>
-                
-                <h3>OAuth Token Status</h3>
-                <p>✅ <strong>OAuth token is valid</strong></p>
-                <p><strong>Authenticated As:</strong> ${oauthData.display_name} (@${oauthData.username})</p>
-                <p><strong>User ID:</strong> ${oauthData.user_id}</p>
-                <p><strong>Scopes:</strong> ${validateResponse.data.scopes.join(', ')}</p>
-                <p><strong>Expires in:</strong> ${Math.floor(validateResponse.data.expires_in / 3600)} hours</p>
-                <p><strong>Created:</strong> ${new Date(oauthData.created_at).toLocaleString()}</p>
-                <p><strong>Last Updated:</strong> ${new Date(oauthData.updated_at).toLocaleString()}</p>
-                
-                <br>
-                <a href="/auth">Back to Your Dashboard</a>
-            `);
-
-        } catch (error) {
-            if (error.response?.status === 401) {
-                res.send(`
-                    <h1>⚠️ Channel Status: ${username}</h1>
-                    <p>✅ Channel config exists</p>
-                    <p>❌ OAuth token is invalid or expired</p>
-                    <br>
-                    <p><strong>Authenticated As:</strong> ${oauthData.display_name} (@${oauthData.username})</p>
-                    <p><strong>Created:</strong> ${new Date(oauthData.created_at).toLocaleString()}</p>
-                    <p><strong>Last Updated:</strong> ${new Date(oauthData.updated_at).toLocaleString()}</p>
-                    
-                    <br>
-                    <a href="/auth">Back to Your Dashboard</a>
-                `);
-            } else {
-                throw error;
-            }
-        }
-
-    } catch (error) {
-        res.status(500).send(`
-            <h1>❌ Error Checking Status</h1>
-            <p>Channel: ${username}</p>
-            <p>Error: ${error.message}</p>
-            <a href="/auth">Back to Dashboard</a>
-        `);
-    }
+// Redirect status to dashboard (status info already shown there)
+app.get('/auth/status', requireAuth, (req, res) => {
+    res.redirect('/auth');
 });
 
 // Refresh OAuth token (SECURE - user can only refresh their own)
@@ -841,10 +729,13 @@ app.get('/auth/refresh', requireAuth, async (req, res) => {
         const oauthData = await getChannelOAuth(username);
 
         if (!config || !oauthData || !oauthData.refresh_token) {
+            if (req.headers.accept && req.headers.accept.includes('application/json')) {
+                return res.status(404).json({ success: false, error: 'No refresh token found' });
+            }
             return res.status(404).send(`
                 <h1>❌ Refresh Failed</h1>
                 <p>No refresh token found for your channel: ${username}</p>
-                <a href="/auth/generate">Generate New OAuth</a> | 
+                <a href="/auth/generate">Generate New OAuth</a> |
                 <a href="/auth">Back to Dashboard</a>
             `);
         }
@@ -867,29 +758,17 @@ app.get('/auth/refresh', requireAuth, async (req, res) => {
         });
 
         console.log(`OAuth token refreshed successfully for channel: ${username}`);
-        
+
         // Trigger EventSub reconnection for manually refreshed channel
         const tokenRenewalService = new TokenRenewalService();
         await tokenRenewalService.triggerEventSubReconnections([username]);
-        
-        res.send(`
-            <h1>✅ Token Refreshed Successfully!</h1>
-            <p>Your OAuth access token has been refreshed for channel: <strong>${username}</strong></p>
-            <p>⏰ Token expires in: ${Math.floor(response.data.expires_in / 3600)} hours</p>
-            <br>
-            <a href="/auth">Back to Your Dashboard</a>
-        `);
+
+        res.redirect('/auth?refreshed=true');
 
     } catch (error) {
         console.error(`OAuth refresh failed for ${username}:`, error.response?.data || error.message);
-        res.status(500).send(`
-            <h1>❌ Refresh Failed</h1>
-            <p>Channel: ${username}</p>
-            <p>Error: ${error.response?.data?.message || error.message}</p>
-            <br>
-            <a href="/auth/generate">Generate New OAuth</a> | 
-            <a href="/auth">Back to Dashboard</a>
-        `);
+        const errorMsg = error.response?.data?.message || error.message;
+        res.redirect('/auth?error=' + encodeURIComponent('Refresh failed: ' + errorMsg));
     }
 });
 
@@ -902,11 +781,7 @@ app.get('/auth/revoke', requireAuth, async (req, res) => {
         const oauthData = await getChannelOAuth(username);
 
         if (!config || !oauthData || !oauthData.access_token) {
-            return res.status(404).send(`
-                <h1>❌ Revoke Failed</h1>
-                <p>No OAuth access token found for your channel: ${username}</p>
-                <a href="/auth">Back to Dashboard</a>
-            `);
+            return res.redirect('/auth?error=' + encodeURIComponent('No token found to revoke'));
         }
 
         // Revoke token with Twitch
@@ -929,29 +804,17 @@ app.get('/auth/revoke', requireAuth, async (req, res) => {
         }
 
         console.log(`OAuth token revoked successfully for channel: ${username}`);
-        
+
         // Trigger EventSub disconnection for revoked channel
         // (This will attempt reconnection but fail due to invalid token, effectively disconnecting)
         const tokenRenewalService = new TokenRenewalService();
         await tokenRenewalService.triggerEventSubReconnections([username]);
-        
-        res.send(`
-            <h1>✅ Token Revoked Successfully!</h1>
-            <p>Your OAuth access token has been revoked for channel: <strong>${username}</strong></p>
-            <p>ℹ️ Mr-AI-is-Here bot no longer has access to your channel.</p>
-            <p>Your channel configuration has been preserved.</p>
-            <br>
-            <a href="/auth">Back to Your Dashboard</a>
-        `);
+
+        res.redirect('/auth?revoked=true');
 
     } catch (error) {
         console.error(`OAuth revocation failed for ${username}:`, error.response?.data || error.message);
-        res.status(500).send(`
-            <h1>❌ Revoke Failed</h1>
-            <p>Channel: ${username}</p>
-            <p>Error: ${error.response?.data?.message || error.message}</p>
-            <a href="/auth">Back to Dashboard</a>
-        `);
+        res.redirect('/auth?error=' + encodeURIComponent('Revoke failed: ' + (error.response?.data?.message || error.message)));
     }
 });
 
@@ -1077,951 +940,16 @@ app.get('/auth/token', async (req, res) => {
 
 // Claude Voice Trigger Interface (SECURE - only for authenticated users)
 app.get('/auth/claude', requireAuth, async (req, res) => {
-    const username = req.session.user.login;
-
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Claude - ${username}</title>
-            <style>
-                body { 
-                    font-family: Arial, sans-serif; 
-                    margin: 20px; 
-                    background-color: #f8f9fa; 
-                    padding-bottom: 50px; 
-                }
-                .container { 
-                    max-width: 600px; 
-                    margin: 0 auto; 
-                    background: white; 
-                    padding: 20px; 
-                    border-radius: 12px; 
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
-                }
-                h1 { 
-                    color: #9146ff; 
-                    text-align: center; 
-                    margin-bottom: 20px; 
-                    font-size: 24px; 
-                }
-                .user-info { 
-                    background-color: #e3f2fd; 
-                    padding: 15px; 
-                    border-radius: 8px; 
-                    margin-bottom: 20px; 
-                    text-align: center; 
-                }
-                .input-section { 
-                    margin: 20px 0; 
-                }
-                .input-section label { 
-                    display: block; 
-                    margin-bottom: 10px; 
-                    font-weight: bold; 
-                }
-                .input-section input, .input-section textarea { 
-                    width: 100%; 
-                    padding: 12px; 
-                    border: 2px solid #ddd; 
-                    border-radius: 6px; 
-                    font-size: 16px; 
-                    box-sizing: border-box; 
-                }
-                .input-section textarea { 
-                    height: 100px; 
-                    resize: vertical; 
-                }
-                .trigger-btn { 
-                    background-color: #9146ff; 
-                    color: white; 
-                    border: none; 
-                    padding: 15px 30px; 
-                    font-size: 18px; 
-                    cursor: pointer; 
-                    border-radius: 6px; 
-                    width: 100%; 
-                    margin: 10px 0; 
-                    box-sizing: border-box; 
-                }
-                .trigger-btn:hover { 
-                    background-color: #7c3aed; 
-                }
-                .trigger-btn:disabled { 
-                    background-color: #ccc; 
-                    cursor: not-allowed; 
-                }
-                .response-section { 
-                    background-color: #f8f9fa; 
-                    padding: 15px; 
-                    border-radius: 8px; 
-                    margin: 20px 0; 
-                    display: none; 
-                }
-                .response-text { 
-                    font-size: 16px; 
-                    line-height: 1.5; 
-                    margin-bottom: 15px; 
-                }
-                .audio-controls { 
-                    display: flex; 
-                    gap: 10px; 
-                    flex-wrap: wrap; 
-                }
-                .audio-btn { 
-                    background-color: #007bff; 
-                    color: white; 
-                    border: none; 
-                    padding: 8px 16px; 
-                    font-size: 14px; 
-                    cursor: pointer; 
-                    border-radius: 4px; 
-                }
-                .audio-btn:hover { 
-                    background-color: #0056b3; 
-                }
-                .volume-control { 
-                    display: flex; 
-                    align-items: center; 
-                    gap: 10px; 
-                }
-                .back-link { 
-                    text-align: center; 
-                    margin-top: 30px; 
-                }
-                .back-link a { 
-                    color: #6c757d; 
-                    text-decoration: none; 
-                }
-                .back-link a:hover { 
-                    text-decoration: underline; 
-                }
-                .loading { 
-                    text-align: center; 
-                    color: #666; 
-                    font-style: italic; 
-                }
-                
-                /* Mobile responsive */
-                @media (max-width: 768px) {
-                    body { margin: 10px; }
-                    .container { padding: 15px; }
-                    h1 { font-size: 20px; }
-                    .audio-controls { justify-content: center; }
-                    .volume-control { flex-direction: column; align-items: center; }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>🤖 Claude</h1>
-                
-                <div class="user-info">
-                    <p><strong>Streaming as:</strong> ${username}</p>
-                    <p>Ask Claude and hear the response!</p>
-                </div>
-                
-                <div class="input-section">
-                    <label for="claudePrompt">Your Question for Claude:</label>
-                    <textarea id="claudePrompt" placeholder="Type your question or use voice input..." maxlength="2000"></textarea>
-                    <div id="voiceStatus" class="voice-status"></div>
-                </div>
-                
-                
-                <button id="triggerBtn" class="trigger-btn" onclick="triggerClaude()">🚀 Ask Claude</button>
-                
-                <div id="voiceSection" style="text-align: center; margin: 20px 0; display: none;">
-                    <div style="margin-bottom: 15px;">
-                        <label for="voiceSelect" style="display: block; font-weight: bold; margin-bottom: 5px;">AI Voice:</label>
-                        <select id="voiceSelect" style="padding: 8px; border-radius: 4px; border: 1px solid #ddd; font-size: 14px;">
-                            <option value="">Loading AI voices...</option>
-                        </select>
-                    </div>
-                    
-                    <button id="oneTimeTrigger" class="trigger-btn" onclick="startOneTimeVoiceFlow()" style="background-color: #dc3545;">
-                        🎤 One-Tap Voice Ask
-                    </button>
-                    <p style="font-size: 12px; color: #666; margin-top: 5px;">Tap once → Speak → Automatic Claude response with voice</p>
-                </div>
-                
-                <div id="responseSection" class="response-section">
-                    <div id="responseText" class="response-text"></div>
-                    <div class="audio-controls">
-                        <button class="audio-btn" onclick="speakResponse()">▶️ Play</button>
-                        <button class="audio-btn" onclick="stopSpeaking()">⏹️ Stop</button>
-                    </div>
-                </div>
-                
-                <div class="back-link">
-                    <a href="/auth">← Back to Dashboard</a>
-                </div>
-            </div>
-            
-            <script>
-                let currentUtterance = null;
-                let isPaused = false;
-                let recognition = null;
-                let isListening = false;
-                let isGeneratingTTS = false; // Track TTS generation state
-                
-                function setPreset(text) {
-                    document.getElementById('claudePrompt').value = text;
-                }
-                
-                
-                async function triggerClaude() {
-                    const prompt = document.getElementById('claudePrompt').value.trim();
-                    const triggerBtn = document.getElementById('triggerBtn');
-                    const responseSection = document.getElementById('responseSection');
-                    const responseText = document.getElementById('responseText');
-                    
-                    if (!prompt) {
-                        alert('Please enter a question for Claude');
-                        return;
-                    }
-                    
-                    
-                    // Update UI
-                    triggerBtn.disabled = true;
-                    triggerBtn.textContent = '🔄 Asking Claude...';
-                    responseSection.style.display = 'none';
-                    
-                    try {
-                        const response = await fetch('/auth/api/claude', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({ prompt: prompt })
-                        });
-                        
-                        const data = await response.json();
-                        
-                        if (data.success) {
-                            // Clear TTS cache for new response
-                            cachedAudioUrl = null;
-                            cachedAudioText = null;
-                            cachedAudioVoice = null;
-                            console.log('🎵 Cleared TTS cache for new Claude response');
-                            
-                            // ALWAYS show text immediately (matches Twitch chat timing)
-                            console.log('🎵 Showing Claude response immediately on UI');
-                            responseText.textContent = data.response;
-                            responseSection.style.display = 'block';
-                            
-                            // For voice triggers, also start TTS in background
-                            if (userTriggeredAutoSpeak) {
-                                userTriggeredAutoSpeak = false; // Reset flag
-                                console.log('🎵 Voice triggered - starting TTS in background...');
-                                try {
-                                    // Start TTS generation/playback without waiting
-                                    speakResponse().catch(error => {
-                                        console.error('Auto-speak failed:', error);
-                                    });
-                                    console.log('🎵 Auto-speak initiated');
-                                } catch (error) {
-                                    console.error('Auto-speak failed:', error);
-                                }
-                            }
-                        } else {
-                            alert('Error: ' + data.error);
-                        }
-                    } catch (error) {
-                        console.error('Error:', error);
-                        alert('Failed to communicate with Claude. Please try again.');
-                    } finally {
-                        triggerBtn.disabled = false;
-                        triggerBtn.textContent = '🎤 Ask Claude';
-                    }
-                }
-                
-                async function speakResponse() {
-                    console.log('🎵 Play button clicked');
-                    
-                    // Prevent multiple simultaneous TTS requests
-                    if (isGeneratingTTS) {
-                        console.log('🎵 TTS already generating, ignoring click');
-                        return;
-                    }
-                    
-                    // Get text from displayed text (always available immediately)
-                    const text = document.getElementById('responseText').textContent;
-                    const volume = 0.8; // Default volume
-                    const selectedVoiceId = document.getElementById('voiceSelect').value;
-                    
-                    if (!text) {
-                        console.log('🎵 No text to speak');
-                        return;
-                    }
-                    
-                    // Stop any existing speech first
-                    speechSynthesis.cancel();
-                    if (currentAudio) {
-                        currentAudio.pause();
-                        currentAudio = null;
-                    }
-                    
-                    // Check if we can reuse cached audio
-                    if (cachedAudioUrl && cachedAudioText === text && cachedAudioVoice === selectedVoiceId) {
-                        console.log('🎵 Using cached audio URL:', cachedAudioUrl);
-                        playAudioFromUrl(cachedAudioUrl, volume);
-                        return;
-                    }
-                    
-                    // Need to generate new TTS
-                    console.log('🎵 Generating new TTS for text:', text.substring(0, 50) + '...');
-                    isGeneratingTTS = true;
-                    updatePlayStopButtons(true);
-                    
-                    try {
-                        // Use AI voice if available, fallback to system voice
-                        if (selectedVoiceId && selectedVoiceId !== 'system') {
-                            console.log('🎵 Using AI voice:', selectedVoiceId);
-                            await speakWithAI(text, selectedVoiceId, volume);
-                        } else {
-                            console.log('🎵 Using system voice');
-                            speakWithSystemVoice(text, volume);
-                            // Cache system voice (though no URL to cache)
-                            cachedAudioText = text;
-                            cachedAudioVoice = selectedVoiceId;
-                            cachedAudioUrl = null; // System voice has no URL
-                        }
-                    } catch (error) {
-                        console.error('🎵 TTS generation failed:', error);
-                        updatePlayStopButtons(false);
-                    } finally {
-                        isGeneratingTTS = false;
-                    }
-                }
-                
-                let currentAudio = null;
-                let userTriggeredAutoSpeak = false; // Track if user expects auto-speak
-                let cachedAudioUrl = null; // Cache the TTS audio URL
-                let cachedAudioText = null; // Cache the text that was used for TTS
-                let cachedAudioVoice = null; // Cache the voice that was used
-                
-                function updatePlayStopButtons(isPlaying) {
-                    const playBtn = document.querySelector('.audio-btn[onclick="speakResponse()"]');
-                    const stopBtn = document.querySelector('.audio-btn[onclick="stopSpeaking()"]');
-                    
-                    if (isPlaying || isGeneratingTTS) {
-                        if (playBtn) {
-                            playBtn.disabled = true;
-                            playBtn.textContent = isGeneratingTTS ? '⏳ Generating...' : '🔊 Playing...';
-                            playBtn.style.opacity = '0.6';
-                        }
-                        if (stopBtn) {
-                            stopBtn.disabled = false;
-                            stopBtn.style.opacity = '1';
-                        }
-                    } else {
-                        if (playBtn) {
-                            playBtn.disabled = false;
-                            playBtn.textContent = '▶️ Play';
-                            playBtn.style.opacity = '1';
-                        }
-                        if (stopBtn) {
-                            stopBtn.disabled = false;
-                            stopBtn.style.opacity = '1';
-                        }
-                    }
-                }
-                
-                function playAudioFromUrl(audioUrl, volume) {
-                    console.log('🎵 Playing cached audio from URL');
-                    
-                    // Use prepped audio if available (for mobile), otherwise create new
-                    if (window.preppedAudio) {
-                        currentAudio = window.preppedAudio;
-                        currentAudio.src = audioUrl;
-                        window.preppedAudio = null; // Clear it
-                    } else {
-                        currentAudio = new Audio(audioUrl);
-                    }
-                    
-                    currentAudio.volume = parseFloat(volume);
-                    
-                    currentAudio.onended = () => {
-                        console.log('🎵 Cached audio playback ended');
-                        currentAudio = null;
-                        updatePlayStopButtons(false);
-                    };
-                    
-                    currentAudio.onerror = (error) => {
-                        console.error('🎵 Cached audio playback error:', error);
-                        currentAudio = null;
-                        updatePlayStopButtons(false);
-                    };
-                    
-                    updatePlayStopButtons(true);
-                    currentAudio.play().catch(error => {
-                        console.error('🎵 Cached audio play failed:', error);
-                        updatePlayStopButtons(false);
-                    });
-                }
-                
-                async function speakWithAI(text, voiceId, volume) {
-                    // Generate speech using premium AI voices
-                    const response = await fetch('/auth/api/tts', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            text: text,
-                            voice_id: voiceId,
-                            volume: volume
-                        })
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error('TTS API failed');
-                    }
-                    
-                    const responseData = await response.json();
-                    
-                    if (responseData.success && responseData.audioUrl) {
-                        // We got a direct URL from TTS Monster
-                        console.log('Using TTS Monster direct URL:', responseData.audioUrl);
-                        
-                        // Cache the audio for future use
-                        cachedAudioUrl = responseData.audioUrl;
-                        cachedAudioText = text;
-                        cachedAudioVoice = voiceId;
-                        console.log('🎵 Cached TTS audio for future plays');
-                        
-                        // Use prepped audio if available (for mobile), otherwise create new
-                        if (window.preppedAudio) {
-                            currentAudio = window.preppedAudio;
-                            currentAudio.src = responseData.audioUrl;
-                            window.preppedAudio = null; // Clear it
-                            console.log('Using prepped audio for mobile compatibility');
-                        } else {
-                            currentAudio = new Audio(responseData.audioUrl);
-                        }
-                        
-                        currentAudio.volume = parseFloat(volume);
-                        
-                        return new Promise((resolve, reject) => {
-                            currentAudio.onended = () => {
-                                console.log('🎵 Audio playback ended');
-                                currentAudio = null; // Clear audio reference
-                                updatePlayStopButtons(false);
-                                resolve();
-                            };
-                            
-                            currentAudio.onerror = (error) => {
-                                console.error('🎵 Audio playback error:', error);
-                                currentAudio = null; // Clear audio reference
-                                updatePlayStopButtons(false);
-                                reject(error);
-                            };
-                            
-                            currentAudio.oncanplay = () => {
-                                console.log('🎵 Audio ready to play');
-                                isGeneratingTTS = false; // Generation complete
-                                updatePlayStopButtons(true);
-                            };
-                            
-                            // Text is already shown immediately when Claude responds
-                            
-                            console.log('🎵 Starting audio playback');
-                            currentAudio.play().catch(error => {
-                                console.error('🎵 Audio play failed:', error);
-                                updatePlayStopButtons(false);
-                                isGeneratingTTS = false;
-                                reject(error);
-                            });
-                        });
-                    } else if (responseData.fallback === 'browser') {
-                        // Use enhanced browser TTS with better settings
-                        console.log('Using enhanced system voice fallback');
-                        return speakWithEnhancedSystemVoice(text, responseData.voice_settings);
-                    } else {
-                        throw new Error('No audio service available');
-                    }
-                }
-                
-                function speakWithEnhancedSystemVoice(text, voiceSettings) {
-                    return new Promise((resolve, reject) => {
-                        currentUtterance = new SpeechSynthesisUtterance(text);
-                        currentUtterance.volume = voiceSettings.volume || 0.8;
-                        currentUtterance.rate = voiceSettings.rate || 0.85;
-                        currentUtterance.pitch = voiceSettings.pitch || 1.0;
-                        
-                        // Find the best available system voice with quality prioritization
-                        const voices = speechSynthesis.getVoices();
-                        console.log('Available voices:', voices.map(v => v.name + ' (' + v.lang + ')'));
-                        
-                        // Priority list of high-quality voices
-                        const qualityVoices = [
-                            // Google voices (highest quality)
-                            'Google US English',
-                            'Google UK English Female',
-                            'Google UK English Male',
-                            'Google Australian English',
-                            'Google Canadian English',
-                            // Microsoft Neural voices
-                            'Microsoft Aria Online (Natural) - English (United States)',
-                            'Microsoft Jenny Online (Natural) - English (United States)',
-                            'Microsoft Guy Online (Natural) - English (United States)',
-                            'Microsoft Zira - English (United States)',
-                            'Microsoft Mark - English (United States)',
-                            // macOS voices
-                            'Samantha',
-                            'Alex',
-                            'Victoria',
-                            'Karen',
-                            'Moira',
-                            'Tessa',
-                            'Veena',
-                            // iOS voices
-                            'Nicky',
-                            'Siri Female',
-                            'Siri Male'
-                        ];
-                        
-                        // Find the best available voice
-                        let selectedVoice = null;
-                        for (const qualityVoiceName of qualityVoices) {
-                            selectedVoice = voices.find(voice => 
-                                voice.name.includes(qualityVoiceName) || 
-                                voice.name === qualityVoiceName
-                            );
-                            if (selectedVoice) break;
-                        }
-                        
-                        // If no quality voice found, try any English voice
-                        if (!selectedVoice) {
-                            selectedVoice = voices.find(voice => 
-                                voice.lang.startsWith('en-') && 
-                                !voice.name.includes('eSpeak')
-                            );
-                        }
-                        
-                        if (selectedVoice) {
-                            currentUtterance.voice = selectedVoice;
-                            console.log('Using enhanced system voice:', selectedVoice.name, '(' + selectedVoice.lang + ')');
-                        }
-                        
-                        currentUtterance.onend = () => {
-                            console.log('🎵 System voice playback ended');
-                            isPaused = false;
-                            currentUtterance = null; // Clear utterance reference
-                            updatePlayStopButtons(false);
-                            resolve();
-                        };
-                        
-                        currentUtterance.onerror = (error) => {
-                            console.error('🎵 System voice error:', error);
-                            currentUtterance = null; // Clear utterance reference
-                            updatePlayStopButtons(false);
-                            reject(error);
-                        };
-                        
-                        currentUtterance.onstart = () => {
-                            console.log('🎵 System voice playback started');
-                            isGeneratingTTS = false; // Generation complete, now playing
-                            updatePlayStopButtons(true);
-                        };
-                        
-                        speechSynthesis.speak(currentUtterance);
-                        isPaused = false;
-                    });
-                }
-                
-                function speakWithSystemVoice(text, volume) {
-                    const voiceSettings = {
-                        volume: parseFloat(volume),
-                        rate: 0.85,
-                        pitch: 1.0
-                    };
-                    speakWithEnhancedSystemVoice(text, voiceSettings);
-                }
-                
-                function stopSpeaking() {
-                    console.log('🛑 Stopping all audio playback');
-                    
-                    // Cancel speech synthesis
-                    speechSynthesis.cancel();
-                    
-                    // Stop current audio
-                    if (currentAudio) {
-                        currentAudio.pause();
-                        currentAudio.currentTime = 0; // Reset to beginning
-                        currentAudio = null;
-                    }
-                    
-                    // Reset state
-                    isPaused = false;
-                    isGeneratingTTS = false;
-                    
-                    // Update button states
-                    updatePlayStopButtons(false);
-                    
-                    console.log('🛑 Audio stopped successfully');
-                }
-                
-                function pauseSpeaking() {
-                    if (currentAudio && !currentAudio.paused) {
-                        currentAudio.pause();
-                        isPaused = true;
-                    } else if (speechSynthesis.speaking && !isPaused) {
-                        speechSynthesis.pause();
-                        isPaused = true;
-                    }
-                }
-                
-                function resumeSpeaking() {
-                    if (currentAudio && currentAudio.paused) {
-                        currentAudio.play();
-                        isPaused = false;
-                    } else if (isPaused) {
-                        speechSynthesis.resume();
-                        isPaused = false;
-                    }
-                }
-                
-                // Initialize speech recognition
-                function initSpeechRecognition() {
-                    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-                        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                        recognition = new SpeechRecognition();
-                        
-                        recognition.continuous = false;
-                        recognition.interimResults = false; // Disable interim results to prevent text changing
-                        recognition.lang = 'en-US';
-                        recognition.maxAlternatives = 3; // Get multiple alternatives for better accuracy
-                        
-                        // Mobile-specific improvements
-                        if (isMobileDevice()) {
-                            recognition.grammars = null; // Disable grammar for better mobile performance
-                            recognition.serviceURI = null; // Use default service for better mobile compatibility
-                        }
-                        
-                        recognition.onstart = function() {
-                            isListening = true;
-                            console.log('🎤 SPEECH: Recognition started successfully');
-                            console.log('🎤 SPEECH: isListening =', isListening);
-                            
-                            // Update visual indicators
-                            const voiceStatus = document.getElementById('voiceStatus');
-                            const oneTimeBtn = document.getElementById('oneTimeTrigger');
-                            
-                            voiceStatus.style.display = 'block';
-                            voiceStatus.style.backgroundColor = '#d4edda';
-                            voiceStatus.style.color = '#155724';
-                            voiceStatus.style.border = '1px solid #c3e6cb';
-                            voiceStatus.textContent = '🎤 LISTENING - Speak now!';
-                            
-                            oneTimeBtn.style.backgroundColor = '#dc3545';
-                            oneTimeBtn.textContent = '🔴 Recording...';
-                            
-                            // Play a "start listening" sound to indicate when to speak
-                            try {
-                                const startBeep = new AudioContext();
-                                const oscillator = startBeep.createOscillator();
-                                const gainNode = startBeep.createGain();
-                                
-                                oscillator.connect(gainNode);
-                                gainNode.connect(startBeep.destination);
-                                
-                                oscillator.frequency.setValueAtTime(800, startBeep.currentTime); // High pitch
-                                gainNode.gain.setValueAtTime(0.1, startBeep.currentTime);
-                                
-                                oscillator.start();
-                                oscillator.stop(startBeep.currentTime + 0.1); // 100ms beep
-                            } catch (error) {
-                                console.log('Could not play start beep:', error);
-                            }
-                        };
-                        
-                        recognition.onresult = function(event) {
-                            console.log('🎤 SPEECH: onresult event fired, resultIndex:', event.resultIndex, 'results.length:', event.results.length);
-                            
-                            let transcript = '';
-                            let isFinal = false;
-                            
-                            for (let i = event.resultIndex; i < event.results.length; i++) {
-                                const result = event.results[i];
-                                
-                                // Check all alternatives and pick the one with highest confidence
-                                let bestTranscript = result[0].transcript;
-                                let bestConfidence = result[0].confidence;
-                                
-                                for (let j = 0; j < result.length && j < 3; j++) {
-                                    const alternative = result[j];
-                                    console.log('🎤 SPEECH: Alternative', j, '- Text:', '"' + alternative.transcript + '"', 'confidence:', alternative.confidence);
-                                    
-                                    if (alternative.confidence > bestConfidence) {
-                                        bestTranscript = alternative.transcript;
-                                        bestConfidence = alternative.confidence;
-                                    }
-                                }
-                                
-                                transcript += bestTranscript;
-                                console.log('🎤 SPEECH: Best result for', i, '- Text:', '"' + bestTranscript + '"', 'confidence:', bestConfidence, 'isFinal:', result.isFinal);
-                                
-                                if (result.isFinal) {
-                                    isFinal = true;
-                                }
-                            }
-                            
-                            console.log('🎤 SPEECH: Combined transcript:', '"' + transcript + '"', 'isFinal:', isFinal);
-                            
-                            // Update textarea with current transcript
-                            document.getElementById('claudePrompt').value = transcript.trim();
-                            
-                            if (isFinal) {
-                                console.log('🎤 SPEECH: Final result detected, stopping recognition and triggering Claude');
-                                // Stop listening immediately to free up microphone
-                                stopListening();
-                                // Automatically trigger Claude after speech completes
-                                setTimeout(() => {
-                                    if (transcript.trim().length > 0) {
-                                        console.log('🎤 SPEECH: Triggering Claude with final transcript:', '"' + transcript.trim() + '"');
-                                        triggerClaude();
-                                    } else {
-                                        console.log('🎤 SPEECH: Empty transcript, not triggering Claude');
-                                    }
-                                }, 300);
-                            }
-                        };
-                        
-                        recognition.onerror = function(event) {
-                            console.error('🎤 SPEECH ERROR: Type:', event.error, 'isListening:', isListening);
-                            console.error('🎤 SPEECH ERROR: Full event:', event);
-                            
-                            // Handle specific mobile errors gracefully
-                            if (event.error === 'not-allowed') {
-                                console.error('🎤 SPEECH ERROR: Microphone access denied');
-                                alert('Microphone access denied. Please enable microphone permissions.');
-                                stopListening();
-                            } else if (event.error === 'no-speech') {
-                                console.log('🎤 SPEECH ERROR: No speech detected - ending session');
-                                stopListening();
-                            } else if (event.error === 'audio-capture') {
-                                console.log('🎤 SPEECH ERROR: Audio capture error (likely microphone conflict) - safely ignored');
-                                // Don't show alert for audio-capture errors as they're often false positives
-                                stopListening();
-                            } else if (event.error === 'aborted') {
-                                console.log('🎤 SPEECH ERROR: Speech recognition aborted - normal operation');
-                                // Don't show error for intentional aborts
-                            } else {
-                                console.log('🎤 SPEECH ERROR: Unknown error:', event.error, '- stopping gracefully');
-                                stopListening();
-                            }
-                        };
-                        
-                        recognition.onend = function() {
-                            console.log('🎤 SPEECH: onend event fired, isListening:', isListening);
-                            stopListening();
-                        };
-                        
-                        return true;
-                    }
-                    return false;
-                }
-                
-                function stopListening() {
-                    console.log('🎤 SPEECH: stopListening() called, current isListening:', isListening);
-                    isListening = false;
-                    
-                    // Reset button and visual indicators
-                    const oneTimeBtn = document.getElementById('oneTimeTrigger');
-                    const voiceStatus = document.getElementById('voiceStatus');
-                    
-                    oneTimeBtn.disabled = false;
-                    oneTimeBtn.textContent = '🎤 One-Tap Voice Ask';
-                    oneTimeBtn.style.backgroundColor = '#dc3545'; // Reset to original color
-                    
-                    voiceStatus.style.display = 'none';
-                    
-                    if (recognition) {
-                        try {
-                            console.log('🎤 SPEECH: Calling recognition.stop() and abort()');
-                            recognition.stop();
-                            recognition.abort(); // Force stop to prevent conflicts
-                            console.log('🎤 SPEECH: Recognition stopped successfully');
-                        } catch (error) {
-                            console.log('🎤 SPEECH: Recognition stop error (safely ignored):', error);
-                        }
-                    } else {
-                        console.log('🎤 SPEECH: No recognition object to stop');
-                    }
-                }
-                
-                function startOneTimeVoiceFlow() {
-                    // Clear any existing input
-                    document.getElementById('claudePrompt').value = '';
-                    
-                    // Update button to show it's active
-                    const oneTimeBtn = document.getElementById('oneTimeTrigger');
-                    oneTimeBtn.disabled = true;
-                    oneTimeBtn.textContent = '🎤 Listening...';
-                    
-                    // Mark that user wants auto-speak
-                    userTriggeredAutoSpeak = true;
-                    
-                    // CRITICAL: Pre-create audio for later use on mobile (don't interfere with speech recognition beep)
-                    try {
-                        // Pre-create audio element for later use
-                        window.preppedAudio = new Audio();
-                        window.preppedAudio.volume = 0.8; // Set to actual volume
-                        
-                        // Play a very brief silent audio to unlock audio context for AI voices
-                        const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
-                        silentAudio.volume = 0.01;
-                        silentAudio.play().catch(() => {});
-                        
-                        console.log('Audio context prepped for mobile (preserving speech recognition beep)');
-                        
-                    } catch (error) {
-                        console.log('Audio prep failed, but continuing');
-                    }
-                    
-                    // Start voice input automatically
-                    if (!recognition) {
-                        if (!initSpeechRecognition()) {
-                            alert('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
-                            oneTimeBtn.disabled = false;
-                            oneTimeBtn.textContent = '🎤 One-Tap Voice Ask';
-                            return;
-                        }
-                    }
-                    
-                    // Start listening after audio context is ready (longer delay for mobile)
-                    const delay = isMobileDevice() ? 1000 : 500; // Longer delay for mobile
-                    console.log('🎤 SPEECH: Scheduling recognition start in', delay, 'ms');
-                    setTimeout(() => {
-                        try {
-                            console.log('🎤 SPEECH: Starting recognition now, isListening:', isListening);
-                            recognition.start();
-                            console.log('🎤 SPEECH: recognition.start() called successfully');
-                        } catch (error) {
-                            console.error('🎤 SPEECH: Failed to start speech recognition:', error);
-                            oneTimeBtn.disabled = false;
-                            oneTimeBtn.textContent = '🎤 One-Tap Voice Ask';
-                        }
-                    }, delay);
-                    
-                    // Reset button after timeout
-                    setTimeout(() => {
-                        oneTimeBtn.disabled = false;
-                        oneTimeBtn.textContent = '🎤 One-Tap Voice Ask';
-                    }, 10000);
-                }
-                
-                // Mobile detection function
-                function isMobileDevice() {
-                    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-                           ('ontouchstart' in window) || 
-                           (window.innerWidth <= 768);
-                }
-                
-                // Initialize speech recognition on page load
-                document.addEventListener('DOMContentLoaded', function() {
-                    const isMobile = isMobileDevice();
-                    console.log('Device detection: Mobile =', isMobile);
-                    
-                    if (isMobile) {
-                        // Show voice features for mobile
-                        document.getElementById('voiceSection').style.display = 'block';
-                        document.getElementById('claudePrompt').placeholder = 'Type your question or use voice input...';
-                        
-                        // Initialize speech recognition
-                        initSpeechRecognition();
-                    } else {
-                        // Desktop mode - hide voice features
-                        document.getElementById('voiceSection').style.display = 'none';
-                        document.getElementById('claudePrompt').placeholder = 'Type your question here...';
-                        
-                        console.log('Desktop detected: Voice features disabled');
-                    }
-                });
-                
-                // Handle enter key in textarea
-                document.getElementById('claudePrompt').addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        triggerClaude();
-                    }
-                });
-                
-                // Load available voices
-                function loadVoices() {
-                    const voiceSelect = document.getElementById('voiceSelect');
-                    voiceSelect.innerHTML = '';
-                    
-                    // Add TTS Monster AI voices
-                    const premiumVoices = [
-                        { id: 'circuit', name: '🤖 Circuit - Electronic', description: 'Electronic robotic voice - default' },
-                        { id: 'alpha', name: '🎭 Alpha - Male', description: 'Strong male voice' },
-                        { id: 'aurora', name: '🌟 Aurora - Female', description: 'Bright female voice' },
-                        { id: 'breeze', name: '🍃 Breeze - Female', description: 'Gentle female voice' },
-                        { id: 'commander', name: '⚔️ Commander - Male', description: 'Authoritative military voice' },
-                        { id: 'titan', name: '💪 Titan - Male', description: 'Deep powerful voice' },
-                        { id: 'vera', name: '💼 Vera - Female', description: 'Professional female voice' },
-                        { id: 'atlas', name: '🌍 Atlas - Male', description: 'Strong reliable voice' },
-                        { id: 'axel', name: '⚡ Axel - Male', description: 'Energetic male voice' },
-                        { id: 'blitz', name: '⚡ Blitz - Male', description: 'Fast-paced voice' },
-                        { id: 'breaker', name: '🔨 Breaker - Male', description: 'Tough rugged voice' },
-                        { id: 'chef', name: '👨‍🍳 Chef - Male', description: 'Friendly cooking voice' },
-                        { id: 'dash', name: '🏃 Dash - Male', description: 'Quick energetic voice' },
-                        { id: 'elder', name: '🧙 Elder - Male', description: 'Wise elderly voice' },
-                        { id: 'frost', name: '❄️ Frost - Male', description: 'Cool calm voice' },
-                        { id: 'hunter', name: '🏹 Hunter - Male', description: 'Focused tracking voice' },
-                        { id: 'kawaii', name: '🌸 Kawaii - Female', description: 'Cute anime-style voice' },
-                        { id: 'leader', name: '👑 Leader - Male', description: 'Commanding leadership voice' },
-                        { id: 'mentor', name: '👨‍🏫 Mentor - Male', description: 'Teaching guidance voice' },
-                        { id: 'reasonable', name: '🤝 Reasonable - Male', description: 'Calm logical voice' },
-                        { id: 'scout', name: '🔍 Scout - Male', description: 'Alert exploration voice' },
-                        { id: 'sentinel', name: '🛡️ Sentinel - Male', description: 'Protective guard voice' },
-                        { id: 'star', name: '⭐ Star - Male', description: 'Bright stellar voice' },
-                        { id: 'whisper', name: '🤫 Whisper - Male', description: 'Soft quiet voice' }
-                    ];
-                    
-                    premiumVoices.forEach((voice) => {
-                        const option = document.createElement('option');
-                        option.value = voice.id;
-                        option.textContent = voice.name;
-                        option.title = voice.description;
-                        
-                        // Set Circuit as default
-                        if (voice.id === 'circuit') {
-                            option.selected = true;
-                            option.textContent += ' ✨ (Default)';
-                        }
-                        
-                        voiceSelect.appendChild(option);
-                    });
-                    
-                    // Add separator
-                    const separator = document.createElement('option');
-                    separator.disabled = true;
-                    separator.textContent = '── System Voices ──';
-                    voiceSelect.appendChild(separator);
-                    
-                    // Add system voice option
-                    const systemOption = document.createElement('option');
-                    systemOption.value = 'system';
-                    systemOption.textContent = '🔧 Enhanced System Voice';
-                    systemOption.title = 'Best available browser voice with optimized settings';
-                    voiceSelect.appendChild(systemOption);
-                    
-                    console.log('Loaded TTS Monster AI voices + enhanced system voice');
-                }
-                
-                // Load voices immediately and on change
-                loadVoices();
-                if (speechSynthesis.onvoiceschanged !== undefined) {
-                    speechSynthesis.onvoiceschanged = loadVoices;
-                }
-            </script>
-        </body>
-        </html>
-    `);
+    try {
+        const username = req.session.user.login;
+        const templatePath = path.join(__dirname, 'views', 'claude-interface.html');
+        const template = await fs.readFile(templatePath, 'utf8');
+        const html = template.replace(/\{\{USERNAME\}\}/g, username);
+        res.send(html);
+    } catch (error) {
+        console.error('Error loading Claude interface:', error);
+        res.status(500).send('Error loading Claude interface');
+    }
 });
 
 // Claude API endpoint for voice trigger (SECURE - only for authenticated users)
@@ -2104,9 +1032,9 @@ app.post('/auth/api/claude', requireAuth, async (req, res) => {
         const claudeMessage = `!claude ${prompt}`;
         await claudeCommand.claude(mockClient, claudeMessage, username, mockTags, {});
 
-        // Wait for additional response parts
-        console.log('🎤 NODE: Waiting for additional response parts...');
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Wait 1.5 seconds for additional parts
+        // Wait for Claude response (takes ~3 seconds)
+        console.log('🎤 NODE: Waiting for Claude response...');
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds for response
 
         if (claudeResponseParts.length > 0) {
             // Combine all parts of the response
@@ -2465,7 +1393,7 @@ class TokenRenewalService {
         
         // Call EventSub service to trigger reconnections
         try {
-            const response = await axios.post('http://localhost:3003/reconnect', {
+            const response = await axios.post(`http://localhost:${BOT_SERVICE_PORT}/reconnect`, {
                 channels: renewedChannels
             }, {
                 timeout: 10000,
@@ -2546,12 +1474,12 @@ class BotTokenManager {
 
             if (daysLeft <= 7) {
                 console.log('🚨 BOT TOKEN RENEWAL REQUIRED - Less than 7 days remaining!');
-                console.log('🔗 Visit: https://mr-ai.dev/auth/bot-token to renew');
+                console.log(`🔗 Visit: ${BASE_URL}/auth/bot-token to renew`);
             }
 
         } catch (error) {
             console.log('❌ Bot token validation failed:', error.response?.data || error.message);
-            console.log('🔗 Visit: https://mr-ai.dev/auth/bot-token to generate new token');
+            console.log(`🔗 Visit: ${BASE_URL}/auth/bot-token to generate new token`);
         }
     }
 
@@ -2634,7 +1562,7 @@ class BotTokenManager {
 // Bot token management endpoints (separate from broadcaster OAuth)
 app.get('/auth/bot-token', (req, res) => {
     const clientId = TWITCH_CLIENT_ID;
-    const redirectUri = 'https://mr-ai.dev/auth/bot-token-callback';
+    const redirectUri = `${BASE_URL}/auth/bot-token-callback`;
     const scopes = 'chat:read+chat:edit+channel:read:subscriptions+moderator:manage:banned_users';
     
     res.send(`
@@ -2897,7 +1825,7 @@ const botTokenManager = new BotTokenManager();
 // Start the server
 app.listen(port, () => {
     console.log(`🔒 Secure Mr-AI-is-Here OAuth Manager listening at http://localhost:${port}`);
-    console.log(`🌐 Public URL: https://mr-ai.dev/auth`);
+    console.log(`🌐 Public URL: ${BASE_URL}/auth`);
     console.log(`🛡️ Security: Session-based authentication with channel ownership verification`);
 
     // Start auto-renewal service

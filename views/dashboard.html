@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mr-AI-is-Here OAuth Manager - {{USERNAME}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: rgba(30, 30, 45, 0.95);
+            padding: 30px;
+            border-radius: 24px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
+
+        h1 {
+            color: #a5b4fc;
+            margin-bottom: 20px;
+            font-size: 28px;
+            font-weight: 600;
+        }
+
+        h3 {
+            color: #a5b4fc;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        h4 {
+            color: #94a3b8;
+            margin-bottom: 12px;
+            margin-top: 20px;
+            font-size: 16px;
+        }
+
+        .security-badge {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%);
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border-left: 4px solid #10b981;
+            color: #6ee7b7;
+        }
+
+        .security-badge strong {
+            color: #10b981;
+        }
+
+        .user-info {
+            background: rgba(20, 20, 35, 0.6);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(102, 126, 234, 0.3);
+            color: #e2e8f0;
+        }
+
+        .user-info p {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+
+        .user-info strong {
+            color: #a5b4fc;
+        }
+
+        .welcome-message {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%);
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            border-left: 4px solid #10b981;
+            color: #e2e8f0;
+        }
+
+        .welcome-message h3 {
+            color: #10b981;
+        }
+
+        .channel-status {
+            background: rgba(20, 20, 35, 0.6);
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            border: 1px solid rgba(102, 126, 234, 0.3);
+            color: #e2e8f0;
+        }
+
+        .channel-status h3 {
+            color: #a5b4fc;
+            margin-bottom: 15px;
+        }
+
+        .channel-status p {
+            margin: 10px 0;
+            line-height: 1.6;
+        }
+
+        .channel-status strong {
+            color: #a5b4fc;
+        }
+
+        .actions {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        .actions h3 {
+            margin-bottom: 20px;
+        }
+
+        .actions button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            margin: 8px;
+            cursor: pointer;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .actions button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+        }
+
+        .btn-info {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+            color: #1a1a2e !important;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+        }
+
+        .info {
+            background: rgba(20, 20, 35, 0.5);
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            border: 1px solid rgba(102, 126, 234, 0.2);
+            color: #e2e8f0;
+        }
+
+        .info h3 {
+            margin-bottom: 15px;
+        }
+
+        .info ul {
+            padding-left: 24px;
+            line-height: 1.8;
+        }
+
+        .info li {
+            margin: 8px 0;
+        }
+
+        .info strong {
+            color: #a5b4fc;
+        }
+
+        .logout {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(102, 126, 234, 0.2);
+        }
+
+        .logout a {
+            color: #a5b4fc;
+            text-decoration: none;
+            margin: 0 15px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .logout a:hover {
+            color: #667eea;
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            .container {
+                padding: 20px;
+            }
+            h1 {
+                font-size: 22px;
+            }
+            .actions button {
+                display: block;
+                width: 100%;
+                margin: 10px 0;
+                padding: 14px;
+                font-size: 15px;
+            }
+            .logout a {
+                display: block;
+                margin: 10px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Mr-AI-is-Here OAuth Manager</h1>
+
+        <div class="security-badge">
+            <strong>🔒 Secure Session:</strong> You are securely authenticated and can only manage your own channel.
+        </div>
+
+        <div class="user-info">
+            <p><strong>👤 Signed in as:</strong> {{DISPLAY_NAME}} (@{{LOGIN}})</p>
+            <p><strong>📧 Email:</strong> {{EMAIL}}</p>
+            <p><strong>🕐 Session started:</strong> {{SESSION_TIME}}</p>
+        </div>
+
+        {{WELCOME_MESSAGE}}
+        {{CHANNEL_STATUS}}
+
+        <div class="actions">
+            <h3>🔧 Manage Your Mr-AI-is-Here Bot</h3>
+            {{ACTIONS}}
+        </div>
+
+        <div class="info">
+            <h3>ℹ️ About OAuth Tokens</h3>
+            <ul>
+                <li><strong>Generate:</strong> Create new OAuth tokens for Mr-AI-is-Here bot to access your channel</li>
+                <li><strong>Refresh:</strong> Extend the life of existing tokens</li>
+                <li><strong>Re-authenticate:</strong> Create completely new tokens with fresh permissions</li>
+                <li><strong>Revoke:</strong> Remove Mr-AI-is-Here bot access from your channel completely</li>
+            </ul>
+
+            <h4>🔧 Default Configuration</h4>
+            <ul>
+                <li><strong>Moderation:</strong> {{MODERATION_STATUS}} - Bot can moderate your chat</li>
+                <li><strong>Chat Only:</strong> {{CHAT_ONLY_STATUS}} - Bot only reads/writes chat</li>
+                <li><strong>Redemptions:</strong> {{REDEMPTION_STATUS}} - Bot responds to channel point redemptions</li>
+            </ul>
+        </div>
+
+        <div class="logout">
+            <a href="/auth/claude">🤖 Claude</a> |
+            <a href="/auth/logout">🚪 Sign out</a>
+        </div>
+    </div>
+
+    <script>
+        // Show success/error messages from query params
+        const urlParams = new URLSearchParams(window.location.search);
+        const actions = document.querySelector('.actions');
+
+        if (urlParams.has('refreshed')) {
+            const msg = document.createElement('div');
+            msg.style.cssText = 'background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%); padding: 15px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #10b981; color: #10b981; font-weight: 500;';
+            msg.textContent = '✅ Token refreshed successfully!';
+            actions.parentNode.insertBefore(msg, actions);
+            history.replaceState({}, '', '/auth');
+            setTimeout(() => msg.remove(), 4000);
+        }
+
+        if (urlParams.has('generated')) {
+            const msg = document.createElement('div');
+            msg.style.cssText = 'background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%); padding: 15px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #10b981; color: #10b981; font-weight: 500;';
+            msg.textContent = '✅ OAuth tokens generated successfully! Bot is now active in your channel.';
+            actions.parentNode.insertBefore(msg, actions);
+            history.replaceState({}, '', '/auth');
+            setTimeout(() => msg.remove(), 5000);
+        }
+
+        if (urlParams.has('revoked')) {
+            const msg = document.createElement('div');
+            msg.style.cssText = 'background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%); padding: 15px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #10b981; color: #10b981; font-weight: 500;';
+            msg.textContent = '✅ OAuth token revoked successfully. Bot access has been removed from your channel.';
+            actions.parentNode.insertBefore(msg, actions);
+            history.replaceState({}, '', '/auth');
+            setTimeout(() => msg.remove(), 5000);
+        }
+
+        if (urlParams.has('error')) {
+            const errorMsg = urlParams.get('error');
+            const msg = document.createElement('div');
+            msg.style.cssText = 'background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%); padding: 15px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #ef4444; color: #f87171; font-weight: 500;';
+            msg.textContent = '❌ ' + errorMsg;
+            actions.parentNode.insertBefore(msg, actions);
+            history.replaceState({}, '', '/auth');
+            setTimeout(() => msg.remove(), 6000);
+        }
+    </script>
+</body>
+</html>
