@@ -31,9 +31,9 @@ app.use(session({
     }
 }));
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Middleware (increased limit for audio uploads)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Authentication middleware
 function requireAuth(req, res, next) {
@@ -1206,6 +1206,60 @@ app.post('/auth/api/tts', requireAuth, async (req, res) => {
     } catch (error) {
         console.error('🎤 NODE: TTS API error:', error);
         res.status(500).json({ success: false, error: 'TTS service unavailable' });
+    }
+});
+
+// OpenAI Whisper Speech-to-Text API endpoint (SECURE - only for authenticated users)
+app.post('/auth/api/whisper', requireAuth, async (req, res) => {
+    const { audio } = req.body;
+
+    console.log('🎤 NODE: Whisper STT API request from', req.session.user.login);
+
+    // Validate input - expect base64 encoded audio
+    if (!audio || typeof audio !== 'string') {
+        console.log('🎤 NODE: Whisper invalid audio data - returning error');
+        return res.status(400).json({ success: false, error: 'Invalid audio data' });
+    }
+
+    try {
+        const FormData = require('form-data');
+
+        // Convert base64 to buffer
+        const audioBuffer = Buffer.from(audio, 'base64');
+        console.log('🎤 NODE: Audio buffer size:', audioBuffer.length, 'bytes');
+
+        // Create form data for OpenAI API
+        const formData = new FormData();
+        formData.append('file', audioBuffer, {
+            filename: 'audio.webm',
+            contentType: 'audio/webm'
+        });
+        formData.append('model', 'whisper-1');
+        formData.append('language', 'en');
+
+        // Send to OpenAI Whisper API
+        console.log('🎤 NODE: Sending audio to OpenAI Whisper...');
+        const response = await axios.post('https://api.openai.com/v1/audio/transcriptions', formData, {
+            headers: {
+                'Authorization': `Bearer ${process.env.API_OPENAI_KEY}`,
+                ...formData.getHeaders()
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
+        });
+
+        const transcription = response.data.text;
+        console.log('🎤 NODE: Whisper transcription:', '"' + transcription + '"');
+
+        res.json({ success: true, text: transcription });
+
+    } catch (error) {
+        console.error('🎤 NODE: Whisper API error:', error.response?.data || error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Speech recognition failed',
+            details: error.response?.data?.error?.message || error.message
+        });
     }
 });
 

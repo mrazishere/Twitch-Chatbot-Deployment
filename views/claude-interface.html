@@ -465,17 +465,21 @@
 
                     // For voice triggers, also start TTS in background
                     if (userTriggeredAutoSpeak) {
-                        userTriggeredAutoSpeak = false; // Reset flag
                         console.log('🎵 Voice triggered - starting TTS in background...');
-                        try {
-                            // Start TTS generation/playback without waiting
-                            speakResponse().catch(error => {
-                                console.error('Auto-speak failed:', error);
-                            });
-                            console.log('🎵 Auto-speak initiated');
-                        } catch (error) {
-                            console.error('Auto-speak failed:', error);
-                        }
+                        userTriggeredAutoSpeak = false; // Reset flag AFTER checking
+
+                        // Give a small delay to ensure UI is ready
+                        setTimeout(() => {
+                            try {
+                                // Start TTS generation/playback without waiting
+                                speakResponse().catch(error => {
+                                    console.error('🎵 Auto-speak failed:', error);
+                                });
+                                console.log('🎵 Auto-speak initiated');
+                            } catch (error) {
+                                console.error('🎵 Auto-speak failed:', error);
+                            }
+                        }, 100);
                     }
                 } else {
                     alert('Error: ' + data.error);
@@ -842,16 +846,11 @@
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 recognition = new SpeechRecognition();
 
+                // Minimal settings for maximum compatibility
                 recognition.continuous = false;
-                recognition.interimResults = false; // Disable interim results to prevent text changing
+                recognition.interimResults = false;
                 recognition.lang = 'en-US';
-                recognition.maxAlternatives = 3; // Get multiple alternatives for better accuracy
-
-                // Mobile-specific improvements
-                if (isMobileDevice()) {
-                    recognition.grammars = null; // Disable grammar for better mobile performance
-                    recognition.serviceURI = null; // Use default service for better mobile compatibility
-                }
+                recognition.maxAlternatives = 1;
 
                 recognition.onstart = function() {
                     isListening = true;
@@ -871,22 +870,27 @@
                     oneTimeBtn.style.backgroundColor = '#dc3545';
                     oneTimeBtn.textContent = '🔴 Recording...';
 
-                    // Play a "start listening" sound to indicate when to speak
-                    try {
-                        const startBeep = new AudioContext();
-                        const oscillator = startBeep.createOscillator();
-                        const gainNode = startBeep.createGain();
+                    // Only play beep on mobile - desktop has audio conflicts
+                    const isMobile = isMobileDevice();
+                    if (isMobile) {
+                        try {
+                            const startBeep = new AudioContext();
+                            const oscillator = startBeep.createOscillator();
+                            const gainNode = startBeep.createGain();
 
-                        oscillator.connect(gainNode);
-                        gainNode.connect(startBeep.destination);
+                            oscillator.connect(gainNode);
+                            gainNode.connect(startBeep.destination);
 
-                        oscillator.frequency.setValueAtTime(800, startBeep.currentTime); // High pitch
-                        gainNode.gain.setValueAtTime(0.1, startBeep.currentTime);
+                            oscillator.frequency.setValueAtTime(800, startBeep.currentTime); // High pitch
+                            gainNode.gain.setValueAtTime(0.1, startBeep.currentTime);
 
-                        oscillator.start();
-                        oscillator.stop(startBeep.currentTime + 0.1); // 100ms beep
-                    } catch (error) {
-                        console.log('Could not play start beep:', error);
+                            oscillator.start();
+                            oscillator.stop(startBeep.currentTime + 0.1); // 100ms beep
+                        } catch (error) {
+                            console.log('Could not play start beep:', error);
+                        }
+                    } else {
+                        console.log('🎤 Desktop: Beep disabled to prevent audio conflicts');
                     }
                 };
 
@@ -1019,82 +1023,153 @@
             }
         }
 
-        function startOneTimeVoiceFlow() {
+        // Voice recording using MediaRecorder (works on all browsers)
+        let mediaRecorder = null;
+        let audioChunks = [];
+
+        async function startOneTimeVoiceFlow() {
             // Clear any existing input
             document.getElementById('claudePrompt').value = '';
 
-            // Update button to show it's active
+            // Update button
             const oneTimeBtn = document.getElementById('oneTimeTrigger');
+            const voiceStatus = document.getElementById('voiceStatus');
             oneTimeBtn.disabled = true;
-            oneTimeBtn.textContent = '🎤 Listening...';
+            oneTimeBtn.textContent = '🎤 Starting...';
 
             // Mark that user wants auto-speak
             userTriggeredAutoSpeak = true;
 
-            // CRITICAL: Pre-create audio for later use on mobile (don't interfere with speech recognition beep)
             try {
-                // Pre-create audio element for later use
-                window.preppedAudio = new Audio();
-                window.preppedAudio.volume = 0.8; // Set to actual volume
+                // Request microphone access
+                console.log('🎤 WHISPER: Requesting microphone access...');
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                console.log('🎤 WHISPER: Microphone access granted');
 
-                // Only play silent audio on mobile (desktop doesn't need it)
-                if (isMobileDevice()) {
-                    // Play a very brief silent audio to unlock audio context for AI voices
-                    const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
-                    silentAudio.volume = 0.01;
-                    silentAudio.play().catch(() => {});
-                    console.log('Audio context prepped for mobile (preserving speech recognition beep)');
-                } else {
-                    console.log('Desktop detected - skipping silent audio prep');
-                }
+                // Reset audio chunks
+                audioChunks = [];
 
-            } catch (error) {
-                console.log('Audio prep failed, but continuing');
-            }
+                // Create MediaRecorder
+                mediaRecorder = new MediaRecorder(stream);
 
-            // Start voice input automatically
-            if (!recognition) {
-                if (!initSpeechRecognition()) {
-                    alert('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
-                    oneTimeBtn.disabled = false;
-                    oneTimeBtn.textContent = '🎤 One-Tap Voice Ask';
-                    return;
-                }
-            }
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                        console.log('🎤 WHISPER: Audio chunk received, size:', event.data.size);
+                    }
+                };
 
-            // Start listening after audio context is ready (shorter delay for desktop)
-            const delay = isMobileDevice() ? 1000 : 300; // Slightly longer delay for desktop to prevent network errors
-            console.log('🎤 SPEECH: Scheduling recognition start in', delay, 'ms');
+                mediaRecorder.onstop = async () => {
+                    console.log('🎤 WHISPER: Recording stopped, processing audio...');
 
-            let retryCount = 0;
-            const maxRetries = 2;
+                    // Stop all tracks
+                    stream.getTracks().forEach(track => track.stop());
 
-            const startRecognition = () => {
-                try {
-                    console.log('🎤 SPEECH: Starting recognition now (attempt ' + (retryCount + 1) + '), isListening:', isListening);
-                    recognition.start();
-                    console.log('🎤 SPEECH: recognition.start() called successfully');
-                } catch (error) {
-                    console.error('🎤 SPEECH: Failed to start speech recognition:', error);
-                    if (retryCount < maxRetries) {
-                        retryCount++;
-                        console.log('🎤 SPEECH: Retrying in 500ms...');
-                        setTimeout(startRecognition, 500);
-                    } else {
+                    // Create audio blob
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    console.log('🎤 WHISPER: Audio blob created, size:', audioBlob.size);
+
+                    if (audioBlob.size === 0) {
+                        console.log('🎤 WHISPER: Empty audio, aborting');
+                        voiceStatus.style.display = 'none';
                         oneTimeBtn.disabled = false;
                         oneTimeBtn.textContent = '🎤 Voice Ask';
-                        alert('Failed to start speech recognition. Please try again.');
+                        alert('No audio recorded. Please try again.');
+                        return;
                     }
+
+                    // Show processing status
+                    voiceStatus.style.display = 'block';
+                    voiceStatus.style.backgroundColor = '#fff3cd';
+                    voiceStatus.style.color = '#856404';
+                    voiceStatus.style.border = '1px solid #ffeaa7';
+                    voiceStatus.textContent = '⏳ Processing speech...';
+
+                    // Convert to base64
+                    const reader = new FileReader();
+                    reader.readAsDataURL(audioBlob);
+                    reader.onloadend = async () => {
+                        const base64Audio = reader.result.split(',')[1];
+                        console.log('🎤 WHISPER: Base64 encoded, length:', base64Audio.length);
+
+                        try {
+                            // Send to Whisper API
+                            console.log('🎤 WHISPER: Sending to server...');
+                            const response = await fetch('/auth/api/whisper', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ audio: base64Audio })
+                            });
+
+                            const data = await response.json();
+
+                            if (data.success && data.text) {
+                                console.log('🎤 WHISPER: Transcription:', data.text);
+                                document.getElementById('claudePrompt').value = data.text;
+                                voiceStatus.style.display = 'none';
+
+                                // Auto-trigger Claude
+                                setTimeout(() => triggerClaude(), 300);
+                            } else {
+                                throw new Error(data.error || 'Transcription failed');
+                            }
+                        } catch (error) {
+                            console.error('🎤 WHISPER: Error:', error);
+                            voiceStatus.style.display = 'none';
+                            alert('Speech recognition failed: ' + error.message);
+                        } finally {
+                            oneTimeBtn.disabled = false;
+                            oneTimeBtn.textContent = '🎤 Voice Ask';
+                        }
+                    };
+                };
+
+                // Start recording
+                mediaRecorder.start();
+                console.log('🎤 WHISPER: Recording started');
+
+                oneTimeBtn.style.backgroundColor = '#dc3545';
+                oneTimeBtn.textContent = '🔴 Recording...';
+                voiceStatus.style.display = 'block';
+                voiceStatus.style.backgroundColor = '#d4edda';
+                voiceStatus.style.color = '#155724';
+                voiceStatus.style.border = '1px solid #c3e6cb';
+                voiceStatus.textContent = '🎤 RECORDING - Speak now!';
+
+                // Play start beep
+                try {
+                    const audioContext = new AudioContext();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+
+                    oscillator.start();
+                    oscillator.stop(audioContext.currentTime + 0.1);
+                    console.log('🎤 WHISPER: Start beep played');
+                } catch (error) {
+                    console.log('🎤 WHISPER: Could not play start beep:', error);
                 }
-            };
 
-            setTimeout(startRecognition, delay);
+                // Stop after 10 seconds or when user clicks again
+                setTimeout(() => {
+                    if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        console.log('🎤 WHISPER: Auto-stopping after timeout');
+                        mediaRecorder.stop();
+                    }
+                }, 10000);
 
-            // Reset button after timeout
-            setTimeout(() => {
+            } catch (error) {
+                console.error('🎤 WHISPER: Microphone error:', error);
                 oneTimeBtn.disabled = false;
-                oneTimeBtn.textContent = '🎤 One-Tap Voice Ask';
-            }, 10000);
+                oneTimeBtn.textContent = '🎤 Voice Ask';
+                voiceStatus.style.display = 'none';
+                alert('Microphone access denied or unavailable: ' + error.message);
+            }
         }
 
         // Mobile detection function
