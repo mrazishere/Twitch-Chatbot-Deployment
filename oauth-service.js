@@ -597,6 +597,11 @@ async function showUserDashboard(username, res, userSession) {
             </div>
         `;
 
+        // Check if user is the bot owner
+        const botOwnerUsername = process.env.TWITCH_USERNAME;
+        const isBotOwner = username.toLowerCase() === botOwnerUsername.toLowerCase();
+        const botTokenLink = isBotOwner ? '<a href="/auth/bot-token">🔧 Bot Token Manager</a> |' : '';
+
         // Load template
         const templatePath = path.join(__dirname, 'views', 'dashboard.html');
         let html = await fs.readFile(templatePath, 'utf8');
@@ -613,6 +618,7 @@ async function showUserDashboard(username, res, userSession) {
         html = html.replace(/{{MODERATION_STATUS}}/g, config.moderationEnabled ? 'Enabled' : 'Disabled');
         html = html.replace(/{{CHAT_ONLY_STATUS}}/g, config.chatOnly ? 'Enabled' : 'Disabled');
         html = html.replace(/{{REDEMPTION_STATUS}}/g, config.redemptionEnabled ? 'Enabled' : 'Disabled');
+        html = html.replace(/{{BOT_TOKEN_LINK}}/g, botTokenLink);
 
         res.send(html);
 
@@ -1482,11 +1488,14 @@ const renewalService = new TokenRenewalService();
 
 // ===== 60-DAY BOT TOKEN MANAGEMENT SYSTEM =====
 const { exec } = require('child_process');
+const TelegramNotifier = require('./telegram-notifier');
 
 class BotTokenManager {
     constructor() {
         this.envPath = path.join(__dirname, '.env');
         this.checkInterval = null;
+        this.telegram = new TelegramNotifier();
+        this.lastNotificationDays = null; // Track last notification to avoid spam
     }
 
     async start() {
@@ -1523,17 +1532,32 @@ class BotTokenManager {
 
             const data = response.data;
             const daysLeft = Math.floor(data.expires_in / 86400);
-            
+            const hoursLeft = Math.floor((data.expires_in % 86400) / 3600);
+
             console.log(`🤖 Bot token expires in ${daysLeft} days (${data.expires_in} seconds)`);
 
+            // Send Telegram notification based on days remaining
+            // Only send once per threshold to avoid spam
             if (daysLeft <= 7) {
                 console.log('🚨 BOT TOKEN RENEWAL REQUIRED - Less than 7 days remaining!');
                 console.log(`🔗 Visit: ${BASE_URL}/auth/bot-token to renew`);
+
+                // Send notification if we haven't notified at this level yet
+                if (this.lastNotificationDays === null || this.lastNotificationDays > daysLeft) {
+                    await this.telegram.notifyBotTokenExpiry(daysLeft, hoursLeft);
+                    this.lastNotificationDays = daysLeft;
+                }
             }
 
         } catch (error) {
             console.log('❌ Bot token validation failed:', error.response?.data || error.message);
             console.log(`🔗 Visit: ${BASE_URL}/auth/bot-token to generate new token`);
+
+            // Send critical notification for expired token (only once)
+            if (this.lastNotificationDays !== 0) {
+                await this.telegram.notifyBotTokenExpiry(0, 0);
+                this.lastNotificationDays = 0;
+            }
         }
     }
 
@@ -1614,11 +1638,30 @@ class BotTokenManager {
 }
 
 // Bot token management endpoints (separate from broadcaster OAuth)
-app.get('/auth/bot-token', (req, res) => {
+app.get('/auth/bot-token', requireAuth, (req, res) => {
     const clientId = TWITCH_CLIENT_ID;
     const redirectUri = `${BASE_URL}/auth/bot-token-callback`;
     const scopes = 'chat:read+chat:edit+channel:read:subscriptions+moderator:manage:banned_users';
-    
+
+    // Check if logged in user is the bot owner
+    const loggedInUser = req.session.user.login;
+    const expectedBotAccount = process.env.TWITCH_USERNAME;
+    const isCorrectAccount = loggedInUser.toLowerCase() === expectedBotAccount.toLowerCase();
+
+    const accountWarning = !isCorrectAccount ? `
+        <div class="warning" style="background: #dc2626; border: 2px solid #f87171;">
+            <strong>🚨 WRONG ACCOUNT!</strong><br>
+            You are logged in as: <strong>${loggedInUser}</strong><br>
+            Expected bot account: <strong>${expectedBotAccount}</strong><br><br>
+            <strong>You MUST logout and login as the bot account to generate the bot token!</strong><br>
+            <a href="/auth/logout" style="color: white; text-decoration: underline;">Click here to logout</a>
+        </div>
+    ` : `
+        <div class="success">
+            ✅ Logged in as: <strong>${loggedInUser}</strong> (Correct bot account)
+        </div>
+    `;
+
     res.send(`
         <!DOCTYPE html>
         <html>
@@ -1627,27 +1670,34 @@ app.get('/auth/bot-token', (req, res) => {
             <style>
                 body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #1a1a1a; color: #fff; }
                 .button { background: #9146ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0; }
+                .button:hover { background: #7c3aed; }
+                .button.disabled { background: #666; cursor: not-allowed; pointer-events: none; }
                 .status { background: #333; padding: 15px; border-radius: 5px; margin: 10px 0; }
                 .warning { background: #ff6b35; padding: 10px; border-radius: 5px; margin: 10px 0; }
                 .success { background: #4caf50; padding: 10px; border-radius: 5px; margin: 10px 0; }
                 .info { background: #2196f3; padding: 10px; border-radius: 5px; margin: 10px 0; }
+                .logout-link { color: #9ca3af; font-size: 14px; float: right; }
             </style>
         </head>
         <body>
+            <a href="/auth/logout" class="logout-link">Logout</a>
             <h1>🤖 Bot Token Management (60-Day Implicit Flow)</h1>
-            
+
             <div class="info">
                 <strong>ℹ️ Bot Owner Only:</strong> This manages the main bot token used by all bot instances.
                 <br><strong>Note:</strong> This is separate from broadcaster tokens used for channel point redemptions.
             </div>
-            
+
+            ${accountWarning}
+
             <p>Current bot token status:</p>
             <div id="status" class="status">Loading...</div>
-            
-            <a href="https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scopes}" class="button">
+
+            <a href="https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scopes}"
+               class="button ${!isCorrectAccount ? 'disabled' : ''}">
                 Generate New 60-Day Bot Token
             </a>
-            
+
             <h3>What happens when you generate a new token:</h3>
             <ol>
                 <li>You'll be redirected to Twitch to authorize the bot account</li>
@@ -1656,7 +1706,7 @@ app.get('/auth/bot-token', (req, res) => {
                 <li>All bot instances will be restarted with new token</li>
                 <li>Bot will have chat permissions for all channels</li>
             </ol>
-            
+
             <div class="warning">
                 <strong>⚠️ Important:</strong> Make sure you're logged into the <strong>bot account</strong> (${process.env.TWITCH_USERNAME}) on Twitch before clicking the button above.
             </div>
@@ -1872,6 +1922,30 @@ app.get('/auth/generate-app-token', requireAuth, async (req, res) => {
         });
     }
 });
+
+// Test Telegram notification endpoint (disabled for security)
+// Uncomment to test Telegram notifications manually
+/*
+app.get('/auth/test-telegram', async (req, res) => {
+    try {
+        const testNotifier = new TelegramNotifier();
+        const result = await testNotifier.sendTestNotification();
+
+        res.json({
+            success: result.success,
+            message: result.message,
+            telegram_enabled: testNotifier.enabled,
+            chat_id: testNotifier.chatId
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error sending test notification',
+            error: error.message
+        });
+    }
+});
+*/
 
 // Initialize bot token manager
 const botTokenManager = new BotTokenManager();
