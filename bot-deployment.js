@@ -453,7 +453,10 @@ async function main() {
                   node_args: '--expose-gc',
                   log_date_format: 'YYYY-MM-DD HH:mm:ss',
                   max_memory_restart: '150M',
-                  watch: [`${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json`],
+                  watch: [
+                    `${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json`,
+                    `${process.env.BOT_FULL_PATH}/channel-configs/shared-conduits.json`
+                  ],
                   watch_delay: 2000,
                   ignore_watch: ['node_modules', 'logs', '*.log', 'oauth.json'],
                   watch_options: {
@@ -742,13 +745,14 @@ module.exports = {
 
           // Prepare ecosystem config entry with watch enabled
           const configPath = `${process.env.BOT_FULL_PATH}/channel-configs/${channelname}.json`;
+          const sharedConduitsPath = `${process.env.BOT_FULL_PATH}/channel-configs/shared-conduits.json`;
           appsConfig.push(`    {
       name: '${channelname}',
       script: '${process.env.BOT_FULL_PATH}/channels/${channelname}.js',
       node_args: '--expose-gc',
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       max_memory_restart: '150M',
-      watch: ['${configPath}'],
+      watch: ['${configPath}', '${sharedConduitsPath}'],
       watch_delay: 2000,
       ignore_watch: ['node_modules', 'logs', '*.log', 'oauth.json'],
       watch_options: {

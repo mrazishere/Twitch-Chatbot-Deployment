@@ -1579,12 +1579,16 @@ class BotTokenManager {
             
             // Restart all bots
             await this.restartAllBots();
-            
+
             // Re-read .env file to update process.env and check new token
-            require('dotenv').config();
+            // Force reload by deleting the cached value first
+            delete require.cache[require.resolve('dotenv')];
+            require('dotenv').config({ override: true });
+
+            // Wait longer for bots to restart before checking
             setTimeout(() => {
                 this.checkBotToken();
-            }, 1000);
+            }, 3000);
             
             return true;
         } catch (error) {

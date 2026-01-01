@@ -293,6 +293,11 @@ async function main() {
       console.log(`[${getTimestamp()}] info: ✅ Subscribed to EventSub via conduit for Users in Chat listing`);
       return response.data;
     } catch (error) {
+      // 409 Conflict means subscription already exists - this is fine
+      if (error.response && error.response.status === 409) {
+        console.log(`[${getTimestamp()}] info: ✅ EventSub subscription already exists (409) - continuing`);
+        return { alreadyExists: true };
+      }
       console.error(`[${getTimestamp()}] error: Failed to subscribe via conduit:`, error.message);
       throw error;
     }
@@ -499,16 +504,24 @@ async function main() {
           sessionId = message.payload.session.id;
           console.log(`[${getTimestamp()}] info: ✅ WebSocket session ID: ${sessionId}`);
 
-          // Load shared conduit and setup subscription
+          // Use centralized conduit service with self-healing
           try {
-            const conduit = await loadSharedConduit();
-            conduitId = conduit.id;
-            await addWebSocketShard(conduitId, sessionId);
+            // Call EventSub Manager to add WebSocket shard (with self-healing)
+            const response = await axios.post('http://localhost:3003/conduit/add-shard', {
+              sessionId: sessionId
+            });
 
-            const channelId = await getCachedChannelId();
-            await subscribeToEventSubViaConduit(conduitId, channelId);
+            if (response.data.success) {
+              conduitId = response.data.conduit.id;
+              console.log(`[${getTimestamp()}] info: ✅ Using centralized conduit: ${conduitId}`);
 
-            console.log(`[${getTimestamp()}] info: 🎉 Conduits setup complete - Bot should appear in Users in Chat list!`);
+              const channelId = await getCachedChannelId();
+              await subscribeToEventSubViaConduit(conduitId, channelId);
+
+              console.log(`[${getTimestamp()}] info: 🎉 Conduits setup complete - Bot should appear in Users in Chat list!`);
+            } else {
+              throw new Error('Failed to add WebSocket shard via conduit service');
+            }
           } catch (error) {
             console.error(`[${getTimestamp()}] error: Conduits setup failed:`, error.message);
           }
