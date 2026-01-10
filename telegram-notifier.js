@@ -91,6 +91,53 @@ https://mr-ai.dev/auth/bot-token
         });
     }
 
+    // App Access Token expiry notification
+    async notifyAppTokenExpiry(daysLeft, hoursLeft = 0) {
+        if (!this.enabled) return false;
+
+        let emoji = '⚠️';
+        let urgency = 'Warning';
+
+        if (daysLeft <= 0) {
+            emoji = '🚨';
+            urgency = 'CRITICAL';
+        } else if (daysLeft <= 3) {
+            emoji = '🔴';
+            urgency = 'URGENT';
+        } else if (daysLeft <= 7) {
+            emoji = '🟠';
+            urgency = 'Alert';
+        }
+
+        const timeRemaining = daysLeft > 0
+            ? `${daysLeft} days`
+            : hoursLeft > 0
+                ? `${hoursLeft} hours`
+                : 'EXPIRED';
+
+        const message = `
+${emoji} <b>App Access Token Expiry ${urgency}</b>
+
+<b>Time Remaining:</b> ${timeRemaining}
+<b>Token Type:</b> Client Credentials (EventSub Conduits)
+
+<b>Status:</b>
+${daysLeft <= 0
+    ? '🚨 <b>Token has EXPIRED!</b> EventSub conduits are failing!\n\n✅ <b>Auto-renewal attempted.</b> Bots should recover automatically.'
+    : daysLeft <= 3
+        ? '⚠️ <b>Auto-renewal will trigger soon.</b> No action needed unless you see errors.'
+        : daysLeft <= 7
+            ? 'Token will auto-renew before expiration. Monitoring status.'
+            : 'Token is healthy. Regular monitoring check.'}
+
+<i>This token auto-renews. This is informational only.</i>
+        `.trim();
+
+        return await this.sendMessage(message, {
+            silent: daysLeft > 3 // Only make noise for urgent notifications
+        });
+    }
+
     // Test notification
     async sendTestNotification() {
         if (!this.enabled) {

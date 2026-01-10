@@ -1495,25 +1495,28 @@ class BotTokenManager {
         this.envPath = path.join(__dirname, '.env');
         this.checkInterval = null;
         this.telegram = new TelegramNotifier();
-        this.lastNotificationDays = null; // Track last notification to avoid spam
+        this.lastNotificationDays = null; // Track last notification to avoid spam (bot token)
+        this.lastAppNotificationDays = null; // Track last notification for app token
     }
 
     async start() {
-        console.log('🤖 Starting 60-Day Bot Token Manager...');
-        
-        // Check token status on startup
+        console.log('🤖 Starting Token Manager (Bot + App Access)...');
+
+        // Check both token types on startup
         await this.checkBotToken();
-        
+        await this.checkAppAccessToken();
+
         // Check every 12 hours
-        this.checkInterval = setInterval(() => {
-            this.checkBotToken();
+        this.checkInterval = setInterval(async () => {
+            await this.checkBotToken();
+            await this.checkAppAccessToken();
         }, 12 * 60 * 60 * 1000);
     }
 
     stop() {
         if (this.checkInterval) {
             clearInterval(this.checkInterval);
-            console.log('🤖 Bot Token Manager stopped');
+            console.log('🤖 Token Manager stopped');
         }
     }
 
@@ -1557,6 +1560,81 @@ class BotTokenManager {
             if (this.lastNotificationDays !== 0) {
                 await this.telegram.notifyBotTokenExpiry(0, 0);
                 this.lastNotificationDays = 0;
+            }
+        }
+    }
+
+    async checkAppAccessToken() {
+        try {
+            console.log('🔑 Checking App Access Token...');
+
+            let appToken = await loadAppAccessToken();
+
+            if (!appToken || !appToken.access_token) {
+                console.log('⚠️ No App Access Token found, generating new one...');
+                appToken = await ensureAppAccessToken();
+
+                // Notify about generation
+                await this.telegram.notifyAppTokenExpiry(0, 0);
+                this.lastAppNotificationDays = 0;
+
+                // Restart bots to pick up new token
+                await this.restartAllBots();
+                return;
+            }
+
+            // Calculate days remaining
+            const createdAt = new Date(appToken.created_at).getTime();
+            const expiresAt = createdAt + (appToken.expires_in * 1000);
+            const now = Date.now();
+            const secondsLeft = Math.floor((expiresAt - now) / 1000);
+            const daysLeft = Math.floor(secondsLeft / 86400);
+            const hoursLeft = Math.floor((secondsLeft % 86400) / 3600);
+
+            console.log(`🔑 App Access Token expires in ${daysLeft} days (${secondsLeft} seconds)`);
+
+            // Auto-renew if less than 7 days remaining
+            if (daysLeft <= 7) {
+                console.log('🔄 App Access Token expiring soon, auto-renewing...');
+
+                try {
+                    appToken = await ensureAppAccessToken();
+                    console.log('✅ App Access Token auto-renewed successfully');
+
+                    // Send notification
+                    if (this.lastAppNotificationDays === null || this.lastAppNotificationDays > daysLeft) {
+                        await this.telegram.notifyAppTokenExpiry(daysLeft, hoursLeft);
+                        this.lastAppNotificationDays = daysLeft;
+                    }
+
+                    // Restart bots to pick up new token
+                    console.log('🔄 Restarting bots to apply new App Access Token...');
+                    await this.restartAllBots();
+
+                } catch (renewError) {
+                    console.error('❌ Failed to auto-renew App Access Token:', renewError.message);
+
+                    // Send critical notification
+                    await this.telegram.notifyAppTokenExpiry(0, 0);
+                    this.lastAppNotificationDays = 0;
+                }
+            }
+
+        } catch (error) {
+            console.error('❌ App Access Token check failed:', error.message);
+
+            // Try to generate new token
+            try {
+                console.log('🔄 Attempting to generate new App Access Token...');
+                await ensureAppAccessToken();
+                console.log('✅ New App Access Token generated');
+
+                // Notify and restart
+                await this.telegram.notifyAppTokenExpiry(0, 0);
+                await this.restartAllBots();
+
+            } catch (generateError) {
+                console.error('❌ Failed to generate new App Access Token:', generateError.message);
             }
         }
     }
