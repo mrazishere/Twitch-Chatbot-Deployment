@@ -3,7 +3,7 @@ require('dotenv').config();
 module.exports = {
   apps: [
     {
-      name: "Bot-Deployment-Manager",
+      name: "Twitch-Bot-Enrollment",
       script: "bot-deployment.js",
       cwd: __dirname,
       watch: ["bot-deployment.js"],

@@ -16,6 +16,8 @@ async function main() {
 
   const tmi = require('tmi.js');
   const axios = require('axios');
+  const ct = require('countries-and-timezones');
+  const cityTimezones = require('city-timezones');
 
   // SECURITY: Validate channel name to prevent path traversal
   function validateChannelName(channelName) {
@@ -803,41 +805,125 @@ async function main() {
             const rawLocation = args.slice(3).join(' ');
 
             if (!rawLocation) {
-              await sendChatMessageAPI(await getCachedChannelId(), "Usage: !config location set [country name] (e.g., !config location set united states)");
+              await sendChatMessageAPI(await getCachedChannelId(), "Usage: !config location set [location] (e.g., singapore, california, hanoi)");
               break;
             }
 
             const location = rawLocation.toLowerCase().trim();
             if (!/^[a-zA-Z\s\-']{2,50}$/.test(location)) {
-              await sendChatMessageAPI(await getCachedChannelId(), "Invalid location. Use only letters, spaces, and hyphens (e.g., 'united states', 'south korea').");
+              await sendChatMessageAPI(await getCachedChannelId(), "Invalid location. Use only letters, spaces, and hyphens.");
               break;
             }
 
-            channelConfig['irl-location'] = location;
-            if (saveChannelConfig(channelName, channelConfig)) {
-              reloadChannelConfig();
-              await sendChatMessageAPI(await getCachedChannelId(), `Location set to: ${location}. This will be used for forex auto-conversion and timezone detection.`);
-            } else {
-              await sendChatMessageAPI(await getCachedChannelId(), "Failed to save location setting.");
+            // Smart location detection: Try country first, then state/province, then city
+            try {
+              let matchedLocation = null;
+              let matchedTimezone = null;
+              let locationType = null;
+
+              // Step 1: Try matching as a country
+              const allCountries = ct.getAllCountries();
+              for (const [countryCode, countryData] of Object.entries(allCountries)) {
+                const countryName = countryData.name.toLowerCase();
+                if (countryName === location || countryName.includes(location) || location.includes(countryName)) {
+                  matchedLocation = countryData.name.toLowerCase();
+                  locationType = 'country';
+                  if (countryData.timezones && countryData.timezones.length > 0) {
+                    matchedTimezone = countryData.timezones[0]; // IANA format timezone
+                  }
+                  break;
+                }
+              }
+
+              // Step 2: If no country match, try matching as a state/province
+              if (!matchedLocation) {
+                const allCities = cityTimezones.cityMapping;
+                const stateMatches = [];
+
+                // Search for cities in the matching state/province (admin_name field)
+                for (const city of allCities) {
+                  if (city.province && city.province.toLowerCase().includes(location)) {
+                    stateMatches.push(city);
+                  }
+                }
+
+                if (stateMatches.length > 0) {
+                  // Sort by population (descending) and take the most populous city's timezone
+                  stateMatches.sort((a, b) => (b.pop || 0) - (a.pop || 0));
+                  const primaryCity = stateMatches[0];
+
+                  matchedLocation = primaryCity.province.toLowerCase();
+                  matchedTimezone = primaryCity.timezone;
+                  locationType = 'state/province';
+                }
+              }
+
+              // Step 3: If no state/province match, try matching as a city
+              if (!matchedLocation) {
+                const allCities = cityTimezones.cityMapping;
+                const cityMatches = [];
+
+                // Search for cities by name (city or city_ascii field)
+                for (const city of allCities) {
+                  const cityName = city.city ? city.city.toLowerCase() : '';
+                  const cityAscii = city.city_ascii ? city.city_ascii.toLowerCase() : '';
+
+                  if (cityName.includes(location) || cityAscii.includes(location)) {
+                    cityMatches.push(city);
+                  }
+                }
+
+                if (cityMatches.length > 0) {
+                  // Sort by population (descending) and take the most populous match
+                  cityMatches.sort((a, b) => (b.pop || 0) - (a.pop || 0));
+                  const primaryCity = cityMatches[0];
+
+                  matchedLocation = (primaryCity.city_ascii || primaryCity.city).toLowerCase();
+                  matchedTimezone = primaryCity.timezone;
+                  locationType = 'city';
+                }
+              }
+
+              // Step 4: Validate we found a match
+              if (!matchedLocation || !matchedTimezone) {
+                await sendChatMessageAPI(await getCachedChannelId(), `Location "${location}" not found. Please check spelling and try again (supports countries, states/provinces, and cities).`);
+                break;
+              }
+
+              // Set both location and timezone
+              channelConfig['irl-location'] = matchedLocation;
+              channelConfig.timezone = matchedTimezone;
+
+              if (saveChannelConfig(channelName, channelConfig)) {
+                reloadChannelConfig();
+                await sendChatMessageAPI(await getCachedChannelId(), `Location set to: ${matchedLocation} (${locationType}) | Timezone: ${matchedTimezone} | Use !clock to see local time.`);
+              } else {
+                await sendChatMessageAPI(await getCachedChannelId(), "Failed to save location setting.");
+              }
+
+            } catch (error) {
+              console.error(`[${getTimestamp()}] Location detection error:`, error.message);
+              await sendChatMessageAPI(await getCachedChannelId(), `Error setting location. Please try again.`);
             }
           } else if (locationAction === 'get' || !locationAction) {
             const currentLocation = channelConfig['irl-location'] || 'Not set';
             await sendChatMessageAPI(await getCachedChannelId(), `Current location: ${currentLocation}`);
           } else if (locationAction === 'clear') {
             delete channelConfig['irl-location'];
+            delete channelConfig.timezone;
             if (saveChannelConfig(channelName, channelConfig)) {
               reloadChannelConfig();
-              await sendChatMessageAPI(await getCachedChannelId(), "Location cleared.");
+              await sendChatMessageAPI(await getCachedChannelId(), "Location and timezone cleared.");
             } else {
               await sendChatMessageAPI(await getCachedChannelId(), "Failed to clear location.");
             }
           } else {
-            await sendChatMessageAPI(await getCachedChannelId(), "Usage: !config location set/get/clear [country name]");
+            await sendChatMessageAPI(await getCachedChannelId(), "Usage: !config location set/get/clear [location] (e.g., singapore, california, hanoi)");
           }
           break;
 
         default:
-          await sendChatMessageAPI(await getCachedChannelId(), "Config commands: !config status | !config enable | !config disable | !config redemption enable/disable | !config redemption-status | !config modstatus | !config special add/remove/list [username] | !config exclude add/remove/list [commandname] | !config location set/get/clear [country]");
+          await sendChatMessageAPI(await getCachedChannelId(), "Config commands: !config status | !config enable | !config disable | !config redemption enable/disable | !config redemption-status | !config modstatus | !config special add/remove/list [username] | !config exclude add/remove/list [commandname] | !config location set/get/clear [location]");
       }
       return;
     }

@@ -19,6 +19,12 @@ const LOGIN_REDIRECT_URI = `${BASE_URL}/auth/login-callback`;
 const BOT_SERVICE_PORT = process.env.BOT_SERVICE_PORT || 3003;
 const CHANNELS_DIR = path.join(__dirname, 'channel-configs');
 
+// Kick OAuth Configuration
+const KICK_CLIENT_ID = process.env.KICK_CLIENT_ID;
+const KICK_CLIENT_SECRET = process.env.KICK_CLIENT_SECRET;
+const KICK_REDIRECT_URI = `${BASE_URL}/auth/kick-callback`;
+const KICK_TOKENS_FILE = path.join(__dirname, '..', 'Kick-Chatbot-Deployment', '.tokens.json');
+
 // Session configuration
 app.use(session({
     secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
@@ -1266,6 +1272,208 @@ app.post('/auth/api/whisper', requireAuth, async (req, res) => {
             error: 'Speech recognition failed',
             details: error.response?.data?.error?.message || error.message
         });
+    }
+});
+
+// ===== KICK OAUTH ENDPOINTS =====
+
+// Kick OAuth helper functions
+async function loadKickTokens() {
+    try {
+        if (await fs.access(KICK_TOKENS_FILE).then(() => true).catch(() => false)) {
+            const data = await fs.readFile(KICK_TOKENS_FILE, 'utf8');
+            return JSON.parse(data);
+        }
+    } catch (error) {
+        console.error('Error loading Kick tokens:', error.message);
+    }
+    return null;
+}
+
+async function saveKickTokens(tokenData) {
+    try {
+        await fs.writeFile(KICK_TOKENS_FILE, JSON.stringify(tokenData, null, 2));
+        console.log('[KICK OAUTH] Tokens saved successfully');
+    } catch (error) {
+        console.error('[KICK OAUTH] Error saving tokens:', error.message);
+        throw error;
+    }
+}
+
+// Generate PKCE code verifier and challenge for Kick OAuth
+function generateKickPKCE() {
+    const codeVerifier = crypto.randomBytes(32).toString('base64url');
+    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+    return { codeVerifier, codeChallenge };
+}
+
+// Kick OAuth: Start authentication flow
+app.get('/auth/kick-start', (req, res) => {
+    if (!KICK_CLIENT_ID) {
+        return res.status(500).send('<h1>Kick OAuth not configured</h1><p>KICK_CLIENT_ID missing from environment</p>');
+    }
+
+    // Generate PKCE
+    const { codeVerifier, codeChallenge } = generateKickPKCE();
+    const state = crypto.randomBytes(16).toString('hex');
+
+    // Store PKCE verifier in session
+    req.session.kickCodeVerifier = codeVerifier;
+    req.session.kickState = state;
+
+    // Kick OAuth scopes
+    const scopes = [
+        'user:read',
+        'channel:update',
+        'chat:write',
+        'chat:read',
+        'channel:read',
+        'moderation:chat',
+        'channel:points:read',
+        'channel:points:write',
+        'moderation:moderators',
+        'kicks:read'
+    ].join(' ');
+
+    const authParams = {
+        client_id: KICK_CLIENT_ID,
+        redirect_uri: KICK_REDIRECT_URI,
+        response_type: 'code',
+        state: state,
+        scope: scopes,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256'
+    };
+
+    const params = new URLSearchParams(authParams);
+    const authUrl = `https://id.kick.com/oauth/authorize?${params.toString()}`;
+
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Kick Bot Authentication</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #1a1a1a; color: #fff; }
+                .button { background: #53fc18; color: #000; padding: 15px 30px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0; font-weight: bold; }
+                .button:hover { background: #3dd80b; }
+                .info { background: #333; padding: 15px; border-radius: 5px; margin: 10px 0; }
+            </style>
+        </head>
+        <body>
+            <h1>🤖 Kick Bot Authentication</h1>
+            <div class="info">
+                <p>Click the button below to authorize the Kick bot with OAuth 2.1 (PKCE).</p>
+                <p>This will allow the bot to send messages in your deployment channel.</p>
+            </div>
+            <a href="${authUrl}" class="button">Authorize Kick Bot</a>
+        </body>
+        </html>
+    `);
+});
+
+// Kick OAuth: Callback endpoint
+app.get('/auth/kick-callback', async (req, res) => {
+    const { code, state, error } = req.query;
+
+    if (error) {
+        console.error('[KICK OAUTH] Authorization error:', error);
+        return res.status(400).send(`
+            <h1>❌ Kick Authorization Failed</h1>
+            <p>Error: ${error}</p>
+            <a href="/auth/kick-start">Try Again</a>
+        `);
+    }
+
+    // Verify state
+    if (!state || state !== req.session.kickState) {
+        return res.status(400).send(`
+            <h1>❌ Invalid State</h1>
+            <p>CSRF protection failed. Please try again.</p>
+            <a href="/auth/kick-start">Try Again</a>
+        `);
+    }
+
+    const codeVerifier = req.session.kickCodeVerifier;
+    if (!codeVerifier) {
+        return res.status(400).send(`
+            <h1>❌ Session Error</h1>
+            <p>Code verifier not found. Please try again.</p>
+            <a href="/auth/kick-start">Try Again</a>
+        `);
+    }
+
+    try {
+        // Exchange code for token
+        const response = await axios.post('https://id.kick.com/oauth/token',
+            new URLSearchParams({
+                grant_type: 'authorization_code',
+                client_id: KICK_CLIENT_ID,
+                client_secret: KICK_CLIENT_SECRET,
+                redirect_uri: KICK_REDIRECT_URI,
+                code: code,
+                code_verifier: codeVerifier
+            }).toString(),
+            {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            }
+        );
+
+        const tokenData = {
+            accessToken: response.data.access_token,
+            refreshToken: response.data.refresh_token,
+            expiresAt: Date.now() + (response.data.expires_in * 1000),
+            createdAt: new Date().toISOString()
+        };
+
+        await saveKickTokens(tokenData);
+
+        // Clear session data
+        delete req.session.kickCodeVerifier;
+        delete req.session.kickState;
+
+        console.log('[KICK OAUTH] ✓ Authentication successful!');
+
+        res.send(`
+            <h1>✅ Kick Bot Authentication Successful!</h1>
+            <p>Tokens have been saved. Your Kick deployment bot can now send messages.</p>
+            <p>Token expires at: ${new Date(tokenData.expiresAt).toLocaleString()}</p>
+            <p><a href="/auth">Back to Dashboard</a></p>
+        `);
+
+    } catch (err) {
+        console.error('[KICK OAUTH] Token exchange failed:', err.response?.data || err.message);
+        res.status(500).send(`
+            <h1>❌ Token Exchange Failed</h1>
+            <p>Error: ${err.response?.data?.error_description || err.message}</p>
+            <a href="/auth/kick-start">Try Again</a>
+        `);
+    }
+});
+
+// Kick OAuth: Status check
+app.get('/auth/kick-status', async (req, res) => {
+    try {
+        const tokens = await loadKickTokens();
+
+        if (!tokens) {
+            return res.json({ authenticated: false, message: 'No tokens found' });
+        }
+
+        const expiresIn = Math.floor((tokens.expiresAt - Date.now()) / 1000);
+        const isExpired = expiresIn <= 0;
+
+        res.json({
+            authenticated: !isExpired,
+            expiresIn: expiresIn,
+            expiresAt: new Date(tokens.expiresAt).toISOString(),
+            createdAt: tokens.createdAt
+        });
+
+    } catch (error) {
+        res.status(500).json({ authenticated: false, error: error.message });
     }
 });
 

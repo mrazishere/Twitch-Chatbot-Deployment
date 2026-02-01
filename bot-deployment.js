@@ -83,8 +83,8 @@ async function main() {
       return;
     }
 
-    // Use safe command construction with escaped quotes
-    const safeCommand = `pm2 ls | grep "${sanitizedTerm}"`;
+    // Use safe command construction - search for twitch-{username} format
+    const safeCommand = `pm2 ls | grep "twitch-${sanitizedTerm}"`;
 
     console.log(`Executing safe PM2 grep: ${safeCommand}`);
     exec(safeCommand, callback);
@@ -439,7 +439,7 @@ async function main() {
                 const config = moduleObj.exports;
 
                 // Check if user already exists
-                const existingApp = config.apps.find(app => app.name === sanitizedUser);
+                const existingApp = config.apps.find(app => app.name === `twitch-${sanitizedUser}`);
                 if (existingApp) {
                   console.log(`${currentTime}: Bot for ${sanitizedUser} already exists in ecosystem config`);
                   client.say(channel, `@${tags.username}, bot for ${sanitizedUser} already exists!`);
@@ -448,7 +448,7 @@ async function main() {
 
                 // Add new app safely
                 config.apps.push({
-                  name: sanitizedUser,
+                  name: `twitch-${sanitizedUser}`,
                   script: `${process.env.BOT_FULL_PATH}/channels/${sanitizedUser}.js`,
                   node_args: '--expose-gc',
                   log_date_format: 'YYYY-MM-DD HH:mm:ss',
@@ -472,7 +472,7 @@ async function main() {
 module.exports = {
   apps: [
     {
-      name: '${sanitizedUser}',
+      name: 'twitch-${sanitizedUser}',
       script: '${process.env.BOT_FULL_PATH}/channels/${sanitizedUser}.js',
       node_args: '--expose-gc',
       log_date_format: "YYYY-MM-DD HH:mm:ss",
@@ -493,8 +493,8 @@ module.exports = {
                 }
               }
 
-              // SECURITY: Safe PM2 start command with watch enabled
-              exec(`pm2 start "${outputPath}" --name "${sanitizedUser}" --node-args="--expose-gc" --watch "${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json" --watch-delay 2000 --ignore-watch "node_modules,logs,*.log,oauth.json" --max-memory-restart 150M --log-date-format "YYYY-MM-DD HH:mm:ss"`, (error, stdout, stderr) => {
+              // SECURITY: Safe PM2 start command with watch enabled - use twitch- prefix
+              exec(`pm2 start "${outputPath}" --name "twitch-${sanitizedUser}" --node-args="--expose-gc" --watch "${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json" --watch-delay 2000 --ignore-watch "node_modules,logs,*.log,oauth.json" --max-memory-restart 150M --log-date-format "YYYY-MM-DD HH:mm:ss"`, (error, stdout, stderr) => {
                 if (error) {
                   console.log(`error: ${error.message}`);
                   return;
@@ -520,7 +520,7 @@ module.exports = {
         console.log(`stdout: ${stdout}`);
 
         if (stdout.includes("online")) {
-          safePM2Restart(sanitizedUser, (error, stdout, stderr) => {
+          safePM2Restart(`twitch-${sanitizedUser}`, (error, stdout, stderr) => {
             if (error) {
               console.log(`error: ${error.message}`);
               return;
@@ -533,7 +533,7 @@ module.exports = {
             client.say(channel, `Restarting Mr-AI-is-Here bot for #${sanitizedUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/auth for full features.`);
           });
         } else {
-          safePM2Restart(sanitizedUser, (error, stdout, stderr) => {
+          safePM2Restart(`twitch-${sanitizedUser}`, (error, stdout, stderr) => {
             if (error) {
               console.log(`error: ${error.message}`);
               return;
@@ -593,7 +593,7 @@ module.exports = {
 
         if (stdout.includes("online")) {
           // SECURITY: Safe PM2 stop command
-          exec(`pm2 stop "${sanitizedUser}"`, (error, stdout, stderr) => {
+          exec(`pm2 stop "twitch-${sanitizedUser}"`, (error, stdout, stderr) => {
             if (error) {
               console.log(`error: ${error.message}`);
               return;
