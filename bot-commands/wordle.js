@@ -182,6 +182,56 @@ function saveChannelStats(channelName, stats) {
   }
 }
 
+// Load active game state from file
+function loadGameState(channelName) {
+  try {
+    ensureGameDataDir();
+    const filePath = path.join(getGameDataPath(), `${channelName}-game.json`);
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
+  } catch (error) {
+    console.error(`[WORDLE] Error loading game state for ${channelName}:`, error.message);
+  }
+  return null;
+}
+
+// Save active game state to file
+function saveGameState(channelName, gameState) {
+  try {
+    ensureGameDataDir();
+    const filePath = path.join(getGameDataPath(), `${channelName}-game.json`);
+    fs.writeFileSync(filePath, JSON.stringify(gameState, null, 2));
+  } catch (error) {
+    console.error(`[WORDLE] Error saving game state for ${channelName}:`, error.message);
+  }
+}
+
+// Remove game state file when game ends
+function clearGameState(channelName) {
+  try {
+    const filePath = path.join(getGameDataPath(), `${channelName}-game.json`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (error) {
+    console.error(`[WORDLE] Error clearing game state for ${channelName}:`, error.message);
+  }
+}
+
+// Get game from memory, falling back to file (restores after bot restart)
+function getOrLoadGame(channelName) {
+  if (channelGames.has(channelName)) {
+    return channelGames.get(channelName);
+  }
+  const saved = loadGameState(channelName);
+  if (saved) {
+    channelGames.set(channelName, saved);
+    console.log(`[WORDLE] Restored game state for ${channelName} from file`);
+  }
+  return saved;
+}
+
 // Check rate limiting for guesses
 function checkGuessRateLimit(username) {
   const now = Date.now();
@@ -352,18 +402,19 @@ exports.wordle = async function wordle(client, message, channel, tags) {
           return;
         }
         
-        // Check if game already active
-        if (channelGames.has(channelName)) {
-          const game = channelGames.get(channelName);
-          if (game.active) {
-            client.say(channel, `@${displayName}, a Wordle game is already active! Current word has ${game.word.split('').map(() => '_').join(' ')} (${game.guesses.length} guesses made)`);
+        // Check if game already active (memory or persisted file)
+        const existingGame = getOrLoadGame(channelName);
+        if (existingGame) {
+          if (existingGame.active) {
+            client.say(channel, `@${displayName}, a Wordle game is already active! Current word has ${existingGame.word.split('').map(() => '_').join(' ')} (${existingGame.guesses.length} guesses made)`);
             return;
           } else {
             // Game exists but is not active (finished), remove it
             channelGames.delete(channelName);
+            clearGameState(channelName);
           }
         }
-        
+
         // Start new game
         try {
           const newWord = getRandomWord();
@@ -375,9 +426,10 @@ exports.wordle = async function wordle(client, message, channel, tags) {
             active: true,
             winner: null
           };
-          
+
           channelGames.set(channelName, gameState);
-          
+          saveGameState(channelName, gameState);
+
           client.say(channel, `🎯 New Wordle game started by @${displayName}! Guess the 5-letter word with !wordle guess <word>. Good luck! _ _ _ _ _`);
         } catch (error) {
           console.error('[WORDLE] Failed to start game:', error.message);
@@ -398,13 +450,13 @@ exports.wordle = async function wordle(client, message, channel, tags) {
           return;
         }
         
-        // Check if game is active
-        if (!channelGames.has(channelName)) {
+        // Check if game is active (memory or persisted file)
+        const game = getOrLoadGame(channelName);
+        if (!game) {
           client.say(channel, `@${displayName}, no Wordle game is currently active! A moderator can start one with !wordle start`);
           return;
         }
-        
-        const game = channelGames.get(channelName);
+
         if (!game.active) {
           client.say(channel, `@${displayName}, the current game has ended! A moderator can start a new one with !wordle start`);
           return;
@@ -447,13 +499,16 @@ exports.wordle = async function wordle(client, message, channel, tags) {
           displayName: displayName,
           timestamp: Date.now()
         });
-        
+
+        // Persist updated game state after every guess
+        saveGameState(channelName, game);
+
         // Check if correct
         if (guessWord === game.word) {
           game.winner = displayName;
           game.active = false;
           game.endTime = Date.now();
-          
+
           // Update stats
           const stats = loadChannelStats(channelName);
           stats.gamesPlayed++;
@@ -461,31 +516,35 @@ exports.wordle = async function wordle(client, message, channel, tags) {
           stats.winners[displayName] = (stats.winners[displayName] || 0) + 1;
           stats.lastPlayed = new Date().toISOString();
           saveChannelStats(channelName, stats);
-          
+          saveGameState(channelName, game);
+
           client.say(channel, `🎉 Congratulations @${displayName}! You won! The word was ${game.word}! ${guessDisplay} (${game.guesses.length} total guesses)`);
-          
+
           // Clean up game after 30 seconds
           setTimeout(() => {
             channelGames.delete(channelName);
+            clearGameState(channelName);
           }, 30000);
         } else {
           // Check if this was the 6th guess (game over)
           if (game.guesses.length >= 6) {
             game.active = false;
             game.endTime = Date.now();
-            
+
             // Update stats for failed game
             const stats = loadChannelStats(channelName);
             stats.gamesPlayed++;
             stats.totalGuesses += game.guesses.length;
             stats.lastPlayed = new Date().toISOString();
             saveChannelStats(channelName, stats);
-            
+            saveGameState(channelName, game);
+
             client.say(channel, `💀 Game Over! The word was ${game.word}. ${guessDisplay} | 6/6 guesses used. Better luck next time!`);
-            
+
             // Clean up game after 30 seconds
             setTimeout(() => {
               channelGames.delete(channelName);
+              clearGameState(channelName);
             }, 30000);
           } else {
             // Show alphabet status after each guess
@@ -518,14 +577,14 @@ exports.wordle = async function wordle(client, message, channel, tags) {
         client.say(channel, `@${displayName}, ${statsMsg}`);
         break;
         
-      case 'chars':
-        // Check if game is active
-        if (!channelGames.has(channelName)) {
+      case 'chars': {
+        // Check if game is active (memory or persisted file)
+        const currentGame = getOrLoadGame(channelName);
+        if (!currentGame) {
           client.say(channel, `@${displayName}, no Wordle game is currently active! A moderator can start one with !wordle start`);
           return;
         }
-        
-        const currentGame = channelGames.get(channelName);
+
         if (!currentGame.active) {
           client.say(channel, `@${displayName}, the current game has ended! A moderator can start a new one with !wordle start`);
           return;
@@ -538,56 +597,60 @@ exports.wordle = async function wordle(client, message, channel, tags) {
         
         const alphabetState = getAlphabetState(currentGame);
         const alphabetDisplay = formatAlphabetDisplay(alphabetState);
-        
+
         client.say(channel, `@${displayName}, Letter status: ${alphabetDisplay}`);
         break;
-        
-      case 'guesses':
-        // Check if game is active
-        if (!channelGames.has(channelName)) {
+      }
+
+      case 'guesses': {
+        // Check if game is active (memory or persisted file)
+        const activeGame = getOrLoadGame(channelName);
+        if (!activeGame) {
           client.say(channel, `@${displayName}, no Wordle game is currently active! A moderator can start one with !wordle start`);
           return;
         }
-        
-        const activeGame = channelGames.get(channelName);
+
         if (!activeGame.active) {
           client.say(channel, `@${displayName}, the current game has ended! A moderator can start a new one with !wordle start`);
           return;
         }
-        
+
         if (activeGame.guesses.length === 0) {
           client.say(channel, `@${displayName}, no guesses have been made yet!`);
           return;
         }
-        
+
         // Show all previous guesses
-        const guessList = activeGame.guesses.map((g, index) => 
+        const guessList = activeGame.guesses.map((g, index) =>
           `${index + 1}. ${g.word} (@${g.displayName})`
         ).join(' | ');
-        
+
         client.say(channel, `@${displayName}, Previous guesses (${activeGame.guesses.length}/6): ${guessList}`);
         break;
-        
+      }
+
       case 'help':
         client.say(channel, `@${displayName}, Wordle Help: Mods use !wordle start to begin. Everyone can !wordle guess <word> to play. Goal: guess the 5-letter word in 6 tries! 🟩=correct, 🟨=wrong position, ⬜=not in word. Use !wordle chars for letters, !wordle guesses for previous attempts.`);
         break;
-        
-      case 'stop':
+
+      case 'stop': {
         if (!isMod) {
           client.say(channel, `@${displayName}, only moderators, broadcasters, and special users can stop Wordle games!`);
           return;
         }
-        
-        if (!channelGames.has(channelName)) {
+
+        const stoppedGame = getOrLoadGame(channelName);
+        if (!stoppedGame) {
           client.say(channel, `@${displayName}, no Wordle game is currently active!`);
           return;
         }
-        
-        const stoppedGame = channelGames.get(channelName);
+
         channelGames.delete(channelName);
-        
+        clearGameState(channelName);
+
         client.say(channel, `@${displayName}, Wordle game stopped. The word was: ${stoppedGame.word}`);
         break;
+      }
         
       default:
         client.say(channel, `@${displayName}, Wordle commands: !wordle start (mods), !wordle guess <word>, !wordle chars, !wordle guesses, !wordle stats, !wordle help, !wordle stop (mods)`);
