@@ -453,6 +453,8 @@ async function main() {
                   node_args: '--expose-gc',
                   log_date_format: 'YYYY-MM-DD HH:mm:ss',
                   max_memory_restart: '150M',
+                  out_file: `${process.env.BOT_FULL_PATH}/logs/twitch-${sanitizedUser}-out.log`,
+                  error_file: `${process.env.BOT_FULL_PATH}/logs/twitch-${sanitizedUser}-err.log`,
                   watch: [
                     `${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json`,
                     `${process.env.BOT_FULL_PATH}/channel-configs/shared-conduits.json`
@@ -477,6 +479,8 @@ module.exports = {
       node_args: '--expose-gc',
       log_date_format: "YYYY-MM-DD HH:mm:ss",
       max_memory_restart: "150M",
+      out_file: '${process.env.BOT_FULL_PATH}/logs/twitch-${sanitizedUser}-out.log',
+      error_file: '${process.env.BOT_FULL_PATH}/logs/twitch-${sanitizedUser}-err.log',
       watch: ['${process.env.BOT_FULL_PATH}/channel-configs/${sanitizedUser}.json'],
       watch_delay: 2000,
       ignore_watch: ['node_modules', 'logs', '*.log', 'oauth.json'],
@@ -752,6 +756,8 @@ module.exports = {
       node_args: '--expose-gc',
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       max_memory_restart: '150M',
+      out_file: '${process.env.BOT_FULL_PATH}/logs/${channelname}-out.log',
+      error_file: '${process.env.BOT_FULL_PATH}/logs/${channelname}-err.log',
       watch: ['${configPath}', '${sharedConduitsPath}'],
       watch_delay: 2000,
       ignore_watch: ['node_modules', 'logs', '*.log', 'oauth.json'],
