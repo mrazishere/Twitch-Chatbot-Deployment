@@ -122,7 +122,7 @@ class CustomRewardsEventSubManager {
             const redemptionEnabled = await this.isRedemptionEnabled(channelName);
             if (!redemptionEnabled) {
                 console.log(`[${this.getTimestamp()}] info: Redemption not enabled for ${channelName}, skipping EventSub`);
-                return false;
+                return true; // Not an error — channel is correctly configured without custom reward redemptions
             }
 
             // Get channel owner's OAuth token
