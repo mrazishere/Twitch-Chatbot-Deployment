@@ -1,6 +1,43 @@
 const fetch = require('node-fetch');
 require('dotenv').config();
 
+// Brave Search API function
+async function callBraveSearchAPI(query, count = 5) {
+    try {
+        const response = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY,
+                'User-Agent': 'Twitch-Chatbot/1.0'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Brave Search API returned ${response.status}: ${await response.text()}`);
+        }
+
+        const data = await response.json();
+        
+        // Format results as context text
+        let searchContext = "Web search results:\n";
+        if (data.web && data.web.results && data.web.results.length > 0) {
+            data.web.results.slice(0, 3).forEach((result, index) => {
+                searchContext += `${index + 1}. ${result.title}\n`;
+                searchContext += `   ${result.description}\n`;
+                searchContext += `   Source: ${result.url}\n\n`;
+            });
+        } else {
+            searchContext += "No relevant results found.\n";
+        }
+        
+        return searchContext;
+    } catch (error) {
+        console.error('Brave Search API error:', error);
+        return "Web search unavailable at the moment.";
+    }
+}
+
 // Add your new function here
 async function callClaudeAPI(messages, systemPromptText) {
     let retries = 0;
@@ -74,6 +111,35 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
 
     while (retries < maxRetries) {
         try {
+            // Extract the latest user message for search query
+            const latestUserMessage = messages.filter(m => m.role === 'user').pop();
+            if (!latestUserMessage) {
+                throw new Error('No user message found for search');
+            }
+
+            // Extract search query from the message (remove username prefix if present)
+            let searchQuery = latestUserMessage.content;
+            if (searchQuery.includes(': ')) {
+                searchQuery = searchQuery.split(': ').slice(1).join(': ');
+            }
+            
+            // Remove [BOT_OWNER] tag if present
+            searchQuery = searchQuery.replace('[BOT_OWNER] ', '');
+
+            console.log(`[DEBUG] Brave Search query: "${searchQuery}"`);
+
+            // Get search results from Brave Search API
+            const searchResults = await callBraveSearchAPI(searchQuery, 3);
+            
+            // Create enhanced system prompt with search results
+            const enhancedSystemPrompt = systemPromptText + "\n\n" + searchResults + 
+                "\n\nCRITICAL INSTRUCTION: Use the web search results above to answer the user's question. " +
+                "You must NEVER say 'I'll search', 'Let me find', 'I'll look up', or ANY mention of searching. " +
+                "Start your response immediately with the factual information. Do not provide ANY preamble, " +
+                "introduction, or mention of tools. Just give the direct answer in under 150 characters TOTAL. " +
+                "Be extremely concise. Respond as if you already know the information.";
+
+            // Call Claude API with search results as context (no web search tool needed)
             const response = await fetch('https://api.anthropic.com/v1/messages', {
                 method: 'POST',
                 headers: {
@@ -82,17 +148,11 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
                     'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
-                    model: "claude-sonnet-4-20250514", // Use Claude 3.7 Sonnet which supports web search
-                    max_tokens: 2048, // Increase token limit for search results
-                    system: systemPromptText + " You have access to web search. CRITICAL INSTRUCTION: You must NEVER say 'I'll search', 'Let me find', 'I'll look up', or ANY mention of searching. Start your response immediately with the factual information. Do not provide ANY preamble, introduction, or mention of tools. Just give the direct answer in under 150 characters TOTAL. Be extremely concise. Respond as if you already know the information.",
-                    messages: messages,
-                    tools: [
-                        {
-                            "type": "web_search_20250305",
-                            "name": "web_search",
-                            "max_uses": 3 // Allow multiple searches if needed
-                        }
-                    ]
+                    model: "claude-sonnet-4-20250514",
+                    max_tokens: 300, // Reduced since search results are already provided
+                    system: enhancedSystemPrompt,
+                    messages: messages
+                    // No tools array - we're not using Claude's web search anymore
                 })
             });
 
@@ -105,56 +165,10 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
             }
 
             const data = await response.json();
-            console.log('Claude 3.7 Sonnet response:', JSON.stringify(data, null, 2)); // Debug logging
+            console.log('Claude response with Brave Search:', JSON.stringify(data, null, 2));
 
             if (!response.ok) {
                 throw new Error(`API returned ${response.status}: ${JSON.stringify(data)}`);
-            }
-
-            // Handle pause_turn for long-running searches
-            if (data.stop_reason === 'pause_turn') {
-                console.log('Received pause_turn, continuing conversation...');
-
-                // Continue the conversation with the paused content
-                const continuationMessages = [
-                    ...messages,
-                    {
-                        role: "assistant",
-                        content: data.content
-                    }
-                ];
-
-                // Make another API call to continue
-                const continuationResponse = await fetch('https://api.anthropic.com/v1/messages', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-api-key': process.env.ANTHROPIC_API_KEY,
-                        'anthropic-version': '2023-06-01'
-                    },
-                    body: JSON.stringify({
-                        model: "claude-sonnet-4-20250514",
-                        max_tokens: 2048,
-                        system: systemPromptText + " Provide ONLY the final answer with current information. No preamble. Keep under 150 characters TOTAL including everything.",
-                        messages: continuationMessages,
-                        tools: [
-                            {
-                                "type": "web_search_20250305",
-                                "name": "web_search",
-                                "max_uses": 3
-                            }
-                        ]
-                    })
-                });
-
-                const continuationData = await continuationResponse.json();
-                console.log('Continuation response:', JSON.stringify(continuationData, null, 2));
-
-                if (!continuationResponse.ok) {
-                    throw new Error(`Continuation API returned ${continuationResponse.status}: ${JSON.stringify(continuationData)}`);
-                }
-
-                return continuationData;
             }
 
             return data;
@@ -163,7 +177,7 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
             const isLastRetry = retries === maxRetries - 1;
 
             // Enhanced error logging for search API
-            logStructured('error', 'Claude Search API call failed', {
+            logStructured('error', 'Claude with Brave Search API call failed', {
                 attempt: retries + 1,
                 maxRetries,
                 isLastRetry,
