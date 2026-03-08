@@ -178,15 +178,15 @@ async function saveAppAccessToken(tokenData) {
     }
 }
 
-async function ensureAppAccessToken() {
+async function ensureAppAccessToken(forceRenew = false) {
     try {
         let appToken = await loadAppAccessToken();
-        
+
         // Check if token exists and is not expired
-        if (appToken && appToken.access_token) {
+        if (!forceRenew && appToken && appToken.access_token) {
             const expiresAt = new Date(appToken.created_at).getTime() + (appToken.expires_in * 1000);
             const isExpired = Date.now() > (expiresAt - 300000); // 5 minute buffer
-            
+
             if (!isExpired) {
                 return appToken;
             }
@@ -1806,7 +1806,7 @@ class BotTokenManager {
                 console.log('🔄 App Access Token expiring soon, auto-renewing...');
 
                 try {
-                    appToken = await ensureAppAccessToken();
+                    appToken = await ensureAppAccessToken(true);
                     console.log('✅ App Access Token auto-renewed successfully');
 
                     // Send notification
