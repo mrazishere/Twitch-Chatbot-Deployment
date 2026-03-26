@@ -103,7 +103,7 @@ const fiveLetterWords = [
   'young', 'youth'
 ];
 
-console.log(`[WORDLE] Loaded ${validWords.length} words for validation and ${fiveLetterWords.length} curated words for answers`);
+console.log(`[WORDLE] Loaded ${validWords.length} words for validation and answers`);
 
 // Get random 5-letter word using npm package
 function getRandomWord() {
@@ -112,8 +112,8 @@ function getRandomWord() {
       throw new Error('No 5-letter words available');
     }
     
-    const randomIndex = Math.floor(Math.random() * fiveLetterWords.length);
-    const word = fiveLetterWords[randomIndex].toUpperCase();
+    const randomIndex = Math.floor(Math.random() * validWords.length);
+    const word = validWords[randomIndex].toUpperCase();
     
     // Double-check validation
     if (word.length === 5 && /^[A-Z]+$/.test(word)) {
@@ -520,10 +520,14 @@ exports.wordle = async function wordle(client, message, channel, tags) {
 
           client.say(channel, `🎉 Congratulations @${displayName}! You won! The word was ${game.word}! ${guessDisplay} (${game.guesses.length} total guesses)`);
 
-          // Clean up game after 30 seconds
+          // Clean up game after 30 seconds (only if no new game has started)
+          const wonGameStartTime = game.startTime;
           setTimeout(() => {
-            channelGames.delete(channelName);
-            clearGameState(channelName);
+            const current = channelGames.get(channelName);
+            if (current && current.startTime === wonGameStartTime) {
+              channelGames.delete(channelName);
+              clearGameState(channelName);
+            }
           }, 30000);
         } else {
           // Check if this was the 6th guess (game over)
@@ -541,10 +545,14 @@ exports.wordle = async function wordle(client, message, channel, tags) {
 
             client.say(channel, `💀 Game Over! The word was ${game.word}. ${guessDisplay} | 6/6 guesses used. Better luck next time!`);
 
-            // Clean up game after 30 seconds
+            // Clean up game after 30 seconds (only if no new game has started)
+            const overGameStartTime = game.startTime;
             setTimeout(() => {
-              channelGames.delete(channelName);
-              clearGameState(channelName);
+              const current = channelGames.get(channelName);
+              if (current && current.startTime === overGameStartTime) {
+                channelGames.delete(channelName);
+                clearGameState(channelName);
+              }
             }, 30000);
           } else {
             // Show alphabet status after each guess
