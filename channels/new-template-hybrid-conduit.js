@@ -145,11 +145,79 @@ async function main() {
     }
   }
 
-  // Send chat message using Helix API for Chat Bot Badge
-  async function sendChatMessageAPI(channelId, message) {
+  // In-memory cache for the App Access Token. Refreshed on demand (on 401) or when
+  // the OAuth Token Manager writes a new token to disk.
+  let cachedAppToken = null;
+  async function getCurrentAppToken(forceReload = false) {
+    if (!cachedAppToken || forceReload) {
+      cachedAppToken = await loadAppAccessToken();
+    }
+    return cachedAppToken;
+  }
+
+  // Inline refresh of the App Access Token using the client_credentials grant.
+  // Used when a 401 persists after reloading from disk. Writes to the same token
+  // file as the OAuth Token Manager so other bots pick up the fresh token too.
+  async function refreshAppAccessTokenInline() {
+    console.log(`[${getTimestamp()}] info: Refreshing App Access Token inline (reason: Helix 401)...`);
+    const response = await axios.post('https://id.twitch.tv/oauth2/token', {
+      client_id: process.env.TWITCH_CLIENTID,
+      client_secret: process.env.TWITCH_CLIENTSECRET,
+      grant_type: 'client_credentials'
+    });
+    const tokenData = {
+      access_token: response.data.access_token,
+      expires_in: response.data.expires_in,
+      token_type: response.data.token_type,
+      is_app_token: true,
+      created_at: new Date().toISOString(),
+      scope: []
+    };
+    const tokenPath = path.resolve(__dirname, '../channel-configs/app-access-token.json');
+    await fsPromises.writeFile(tokenPath, JSON.stringify(tokenData, null, 2));
+    cachedAppToken = tokenData;
+    console.log(`[${getTimestamp()}] info: ✅ App Access Token refreshed successfully`);
+    return tokenData;
+  }
+
+  // Cache the bot's user ID — it never changes for the lifetime of the process.
+  let cachedBotUserId = null;
+  async function getCachedBotUserId() {
+    if (!cachedBotUserId) {
+      cachedBotUserId = await getUserId(process.env.TWITCH_USERNAME);
+    }
+    return cachedBotUserId;
+  }
+
+  // Send via tmi.js IRC as the ultimate fallback. Returns a status object, never throws.
+  async function ircFallback(message, helixStatus) {
+    console.log(`[${getTimestamp()}] warn: Falling back to tmi.js IRC (helix status: ${helixStatus ?? 'network'})`);
     try {
-      const appToken = await loadAppAccessToken();
-      const botUserId = await getUserId(process.env.TWITCH_USERNAME);
+      await client.say(`#${channelName}`, message);
+      console.log(`[${getTimestamp()}] info: Message sent via tmi.js IRC: ${message}`);
+      return { fallback: 'tmi', helixStatus };
+    } catch (tmiErr) {
+      console.error(`[${getTimestamp()}] error: tmi.js IRC fallback also failed:`, tmiErr.message);
+      return { dropped: true, reason: 'all-paths-failed', helixStatus };
+    }
+  }
+
+  // Self-healing chat send via Helix API with the following recovery behavior:
+  //   401 -> reload token from disk; if unchanged, inline-refresh via client_credentials.
+  //          Retry the send once. If still 401, fall through to IRC.
+  //   403 -> permission issue (bot not mod / channel:bot not granted). Token refresh
+  //          won't help — fall back to IRC.
+  //   429 -> back off using the Ratelimit-Reset header (or exponential), retry up to 3x.
+  //   5xx -> transient server error, exponential backoff retry up to 3x.
+  //   Network error (no response) -> exponential backoff retry up to 3x.
+  //   Retries exhausted or anything else -> IRC fallback as last resort.
+  //   IRC fallback also fails -> log and drop (bot keeps running).
+  // Never throws. Returns the Helix response data on success, or a status object otherwise.
+  async function sendChatMessageAPI(channelId, message, ctx = { attempt: 0, refreshed: false }) {
+    const MAX_RETRIES = 3;
+    try {
+      const appToken = await getCurrentAppToken();
+      const botUserId = await getCachedBotUserId();
 
       const response = await axios.post('https://api.twitch.tv/helix/chat/messages', {
         broadcaster_id: channelId,
@@ -166,12 +234,65 @@ async function main() {
       console.log(`[${getTimestamp()}] info: Message sent with Chat Bot Badge: ${message}`);
       return response.data;
     } catch (error) {
-      console.error(`[${getTimestamp()}] error: Failed to send message via API:`, error.message);
-      if (error.response) {
-        console.error(`[${getTimestamp()}] error: Response status: ${error.response.status}`);
+      const status = error.response?.status;
+      const { attempt, refreshed } = ctx;
+
+      // 401: token problem. Try reloading from disk; if still stale, inline-refresh.
+      if (status === 401 && !refreshed) {
+        try {
+          const oldAccess = cachedAppToken?.access_token;
+          const reloaded = await getCurrentAppToken(true);
+          if (reloaded.access_token === oldAccess) {
+            await refreshAppAccessTokenInline();
+          } else {
+            console.log(`[${getTimestamp()}] info: Reloaded App Access Token from disk (likely refreshed by OAuth Token Manager), retrying send`);
+          }
+          return await sendChatMessageAPI(channelId, message, { attempt, refreshed: true });
+        } catch (refreshErr) {
+          console.error(`[${getTimestamp()}] error: Token refresh failed:`, refreshErr.message);
+          return ircFallback(message, status);
+        }
+      }
+
+      // 403: permission issue (not mod, channel:bot not authorized). Token refresh can't fix it.
+      if (status === 403) {
+        console.log(`[${getTimestamp()}] warn: Helix 403 - bot lacks send permission in this channel`);
+        return ircFallback(message, status);
+      }
+
+      // 429: rate limited. Back off (prefer Ratelimit-Reset header) and retry.
+      if (status === 429 && attempt < MAX_RETRIES) {
+        const resetHdr = parseInt(error.response?.headers?.['ratelimit-reset'] || '0', 10);
+        const now = Math.floor(Date.now() / 1000);
+        const headerWait = Math.max((resetHdr - now) * 1000, 0);
+        const waitMs = Math.min(Math.max(headerWait, 500 * Math.pow(2, attempt)), 5000);
+        console.log(`[${getTimestamp()}] warn: Helix rate limited (429), retry ${attempt + 1}/${MAX_RETRIES} in ${waitMs}ms`);
+        await sleep(waitMs);
+        return sendChatMessageAPI(channelId, message, { attempt: attempt + 1, refreshed });
+      }
+
+      // 5xx: transient server-side. Exponential backoff retry.
+      if (status >= 500 && status < 600 && attempt < MAX_RETRIES) {
+        const waitMs = 500 * Math.pow(2, attempt);
+        console.log(`[${getTimestamp()}] warn: Helix server error (${status}), retry ${attempt + 1}/${MAX_RETRIES} in ${waitMs}ms`);
+        await sleep(waitMs);
+        return sendChatMessageAPI(channelId, message, { attempt: attempt + 1, refreshed });
+      }
+
+      // Network error (request didn't reach Twitch). Exponential backoff retry.
+      if (!error.response && attempt < MAX_RETRIES) {
+        const waitMs = 500 * Math.pow(2, attempt);
+        console.log(`[${getTimestamp()}] warn: Network error on Helix send (${error.message}), retry ${attempt + 1}/${MAX_RETRIES} in ${waitMs}ms`);
+        await sleep(waitMs);
+        return sendChatMessageAPI(channelId, message, { attempt: attempt + 1, refreshed });
+      }
+
+      // Exhausted retries or unrecoverable: IRC fallback as last resort.
+      console.error(`[${getTimestamp()}] error: Helix send failed (status ${status}, attempts ${attempt + 1}):`, error.message);
+      if (error.response?.data) {
         console.error(`[${getTimestamp()}] error: Response data:`, error.response.data);
       }
-      throw error;
+      return ircFallback(message, status);
     }
   }
 
@@ -992,14 +1113,18 @@ async function main() {
           }
         };
 
-        try {
-          commandFunction(clientWrapper, message, channel, tmiCompatibleTags);
-        } catch (error) {
-          // Only log actual errors, not "not our command" type messages
-          if (error.message && !error.message.includes('Not our command')) {
-            console.log(`[${getTimestamp()}] error: Command ${commandName} failed:`, error.message);
+        // Wrap in async IIFE so async rejections from commandFunction are caught here
+        // and don't bubble up to the global unhandledRejection handler (which exits the bot).
+        (async () => {
+          try {
+            await commandFunction(clientWrapper, message, channel, tmiCompatibleTags);
+          } catch (error) {
+            // Only log actual errors, not "not our command" type messages
+            if (error?.message && !error.message.includes('Not our command')) {
+              console.log(`[${getTimestamp()}] error: Command ${commandName} failed:`, error.message);
+            }
           }
-        }
+        })();
       });
 
     } catch (error) {

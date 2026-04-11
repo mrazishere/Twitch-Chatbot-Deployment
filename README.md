@@ -17,6 +17,8 @@ This project allows deployment of Twitch chatbot for multiple channels running o
 ### Check out the [Wiki](https://github.com/mrazishere/Twitch-Chatbot-Deployment/wiki) for installation & guide
 
 ## Recent Updates
+- ✅ **Self-healing `sendChatMessageAPI`**: `401` reloads the token from disk and, if still stale, inline-refreshes via `client_credentials` before retrying. `429` backs off using `Ratelimit-Reset` and retries up to 3x. `5xx` and network errors retry with exponential backoff. `403` (and all exhausted retries) fall back to TMI.js IRC. IRC fallback preserves bot function without moderator status; Helix path preserves the Chat Bot Badge when available. Never throws on send failure — command dispatch also wraps each handler in try/catch so async rejections can't reach `unhandledRejection`. Bot user ID and app token are cached in-memory to eliminate per-message API calls.
+- ✅ `!claude` post-processing no longer strips single-sentence answers that begin with phrases like "Here's…" / "Let me…"
 - ✅ Smart 3-tier location detection (countries, states/provinces, cities)
 - ✅ Automatic IANA timezone detection using `countries-and-timezones` and `city-timezones` libraries
 - ✅ Weather command defaults to channel location

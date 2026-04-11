@@ -1038,11 +1038,14 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                     responseText = responseText.replace(/@\w+,?\s*/g, '');
                     responseText = responseText.trim();
 
-                    // If response still starts with problematic phrases, cut them out
+                    // If response still starts with problematic phrases, cut out the first sentence
+                    // but only when there's actual content remaining (guards against stripping
+                    // single-sentence answers like "Here's a tongue twister: X.").
                     if (/^(I'll|Let me|I'm going to|Here's|The latest)/i.test(responseText)) {
-                        const sentences = responseText.split(/[.!?]+/);
-                        if (sentences.length > 1) {
-                            responseText = sentences.slice(1).join('.').trim();
+                        const parts = responseText.split(/([.!?]+\s*)/);
+                        const rest = parts.slice(2).join('').trim();
+                        if (rest.length > 0) {
+                            responseText = rest;
                         }
                     }
 
