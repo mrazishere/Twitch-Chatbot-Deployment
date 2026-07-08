@@ -138,6 +138,20 @@ ${daysLeft <= 0
         });
     }
 
+    // Informational: bot token was successfully renewed
+    async notifyBotTokenRenewed(daysLeft = null) {
+        const expiryLine = daysLeft !== null ? `\n\n<b>New token expires in:</b> ${daysLeft} days` : '';
+        const message = `
+✅ <b>Twitch Bot - Token Refreshed Successfully</b>
+
+<b>Bot Account:</b> ${process.env.TWITCH_USERNAME || 'Unknown'}${expiryLine}
+
+Token was renewed. No action needed.
+        `.trim();
+
+        return await this.sendMessage(message, { silent: true });
+    }
+
     // Test notification
     async sendTestNotification() {
         if (!this.enabled) {

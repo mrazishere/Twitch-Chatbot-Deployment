@@ -1,7 +1,7 @@
 // Conduit Manager - Centralized conduit management with self-healing
 // Manages Twitch EventSub conduits for all bots
 
-require('dotenv').config();
+require('dotenv').config({ override: true });
 const axios = require('axios');
 const fs = require('fs');
 const fsPromises = require('fs').promises;

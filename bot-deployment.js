@@ -1,6 +1,6 @@
 async function main() {
   // Require necessary node modules
-  require('dotenv').config();
+  require('dotenv').config({ override: true });
   const tmi = require('tmi.js');
   const fs = require('fs');
   const { exec } = require("child_process");

@@ -1,5 +1,5 @@
 // EventSub Service - Standalone PM2 service for managing all channel EventSub connections
-require('dotenv').config();
+require('dotenv').config({ override: true });
 const express = require('express');
 const { CustomRewardsEventSubManager } = require('./custom-rewards-eventsub.js');
 const { ConduitManager } = require('./conduit-manager.js');

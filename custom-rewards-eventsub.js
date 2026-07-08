@@ -1,7 +1,7 @@
 // /custom-rewards-eventsub.js
 // Proper EventSub implementation for channel.channel_points_custom_reward_redemption.add
 
-require('dotenv').config();
+require('dotenv').config({ override: true });
 const { ApiClient } = require('@twurple/api');
 const { StaticAuthProvider } = require('@twurple/auth');
 const { EventSubWsListener } = require('@twurple/eventsub-ws');

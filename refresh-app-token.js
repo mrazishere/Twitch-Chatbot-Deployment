@@ -3,7 +3,7 @@
 const axios = require('axios');
 const fs = require('fs').promises;
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ override: true });
 
 async function refreshAppAccessToken() {
     try {

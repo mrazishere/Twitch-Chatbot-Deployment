@@ -1,5 +1,5 @@
 const fetch = require('node-fetch');
-require('dotenv').config();
+require('dotenv').config({ override: true });
 
 // Brave Search API function
 async function callBraveSearchAPI(query, count = 5) {
@@ -53,7 +53,7 @@ async function callClaudeAPI(messages, systemPromptText) {
                     'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
-                    model: "claude-sonnet-4-20250514", // Make sure this is consistent
+                    model: "claude-sonnet-4-6", // Make sure this is consistent
                     max_tokens: 1024,
                     system: systemPromptText,
                     messages: messages
@@ -148,7 +148,7 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
                     'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
-                    model: "claude-sonnet-4-20250514",
+                    model: "claude-sonnet-4-6",
                     max_tokens: 300, // Reduced since search results are already provided
                     system: enhancedSystemPrompt,
                     messages: messages

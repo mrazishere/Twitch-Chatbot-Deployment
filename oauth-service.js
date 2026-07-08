@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ override: true });
 const express = require('express');
 const axios = require('axios');
 const fs = require('fs').promises;
@@ -1862,7 +1862,7 @@ class BotTokenManager {
             await fs.writeFile(this.envPath, updatedContent);
             
             console.log('✅ Bot token updated in .env file');
-            
+
             // Restart all bots
             await this.restartAllBots();
 
@@ -1870,6 +1870,21 @@ class BotTokenManager {
             // Force reload by deleting the cached value first
             delete require.cache[require.resolve('dotenv')];
             require('dotenv').config({ override: true });
+
+            // Reset notification dedupe so a future expiry alert is delivered again
+            this.lastNotificationDays = null;
+
+            // Send confirmation DM (best-effort)
+            try {
+                const validate = await axios.get('https://id.twitch.tv/oauth2/validate', {
+                    headers: { 'Authorization': `OAuth ${newToken}` },
+                    timeout: 5000
+                });
+                const daysLeft = Math.floor(validate.data.expires_in / 86400);
+                await this.telegram.notifyBotTokenRenewed(daysLeft);
+            } catch (notifyErr) {
+                console.log('⚠️ Failed to send renewal Telegram DM:', notifyErr.message);
+            }
 
             // Wait longer for bots to restart before checking
             setTimeout(() => {
