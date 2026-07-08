@@ -114,3 +114,6 @@ package-lock.json
 
 # Wordle game data (channel-specific stats)
 wordle-data/
+
+# Graphify knowledge-graph output (generated)
+graphify-out/
