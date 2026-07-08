@@ -53,7 +53,7 @@ async function callClaudeAPI(messages, systemPromptText) {
                     'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
-                    model: "claude-sonnet-4-6", // Make sure this is consistent
+                    model: "claude-sonnet-5", // Make sure this is consistent
                     max_tokens: 1024,
                     system: systemPromptText,
                     messages: messages
@@ -148,7 +148,7 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
                     'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
-                    model: "claude-sonnet-4-6",
+                    model: "claude-sonnet-5",
                     max_tokens: 300, // Reduced since search results are already provided
                     system: enhancedSystemPrompt,
                     messages: messages
