@@ -81,7 +81,7 @@ ${daysLeft <= 0
         : daysLeft <= 7
             ? 'Please renew the bot token soon.\n\nRenewal URL:'
             : 'Bot token renewal recommended.\n\nRenewal URL:'}
-https://mr-ai.dev/auth/bot-token
+https://mr-ai.dev/twitch/bot-token
 
 <i>Tip: Make sure you're logged into Twitch as @${process.env.TWITCH_USERNAME} before generating</i>
         `.trim();

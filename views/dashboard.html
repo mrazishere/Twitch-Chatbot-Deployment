@@ -273,9 +273,9 @@
         </div>
 
         <div class="logout">
-            <a href="/auth/claude">🤖 Claude</a> |
+            <a href="/twitch/claude">🤖 Claude</a> |
             {{BOT_TOKEN_LINK}}
-            <a href="/auth/logout">🚪 Sign out</a>
+            <a href="/twitch/logout">🚪 Sign out</a>
         </div>
     </div>
 
@@ -289,7 +289,7 @@
             msg.style.cssText = 'background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%); padding: 15px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #10b981; color: #10b981; font-weight: 500;';
             msg.textContent = '✅ Token refreshed successfully!';
             actions.parentNode.insertBefore(msg, actions);
-            history.replaceState({}, '', '/auth');
+            history.replaceState({}, '', '/twitch');
             setTimeout(() => msg.remove(), 4000);
         }
 
@@ -298,7 +298,7 @@
             msg.style.cssText = 'background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%); padding: 15px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #10b981; color: #10b981; font-weight: 500;';
             msg.textContent = '✅ OAuth tokens generated successfully! Bot is now active in your channel.';
             actions.parentNode.insertBefore(msg, actions);
-            history.replaceState({}, '', '/auth');
+            history.replaceState({}, '', '/twitch');
             setTimeout(() => msg.remove(), 5000);
         }
 
@@ -307,7 +307,7 @@
             msg.style.cssText = 'background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%); padding: 15px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #10b981; color: #10b981; font-weight: 500;';
             msg.textContent = '✅ OAuth token revoked successfully. Bot access has been removed from your channel.';
             actions.parentNode.insertBefore(msg, actions);
-            history.replaceState({}, '', '/auth');
+            history.replaceState({}, '', '/twitch');
             setTimeout(() => msg.remove(), 5000);
         }
 
@@ -317,7 +317,7 @@
             msg.style.cssText = 'background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%); padding: 15px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #ef4444; color: #f87171; font-weight: 500;';
             msg.textContent = '❌ ' + errorMsg;
             actions.parentNode.insertBefore(msg, actions);
-            history.replaceState({}, '', '/auth');
+            history.replaceState({}, '', '/twitch');
             setTimeout(() => msg.remove(), 6000);
         }
     </script>

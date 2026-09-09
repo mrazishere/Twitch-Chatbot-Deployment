@@ -14,15 +14,15 @@ const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENTID;
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENTSECRET;
 const OAUTH_DOMAIN = process.env.OAUTH_DOMAIN || 'localhost:3001';
 const BASE_URL = OAUTH_DOMAIN.startsWith('localhost') ? `http://${OAUTH_DOMAIN}` : `https://${OAUTH_DOMAIN}`;
-const REDIRECT_URI = `${BASE_URL}/auth/callback`;
-const LOGIN_REDIRECT_URI = `${BASE_URL}/auth/login-callback`;
+const REDIRECT_URI = `${BASE_URL}/twitch/callback`;
+const LOGIN_REDIRECT_URI = `${BASE_URL}/twitch/login-callback`;
 const BOT_SERVICE_PORT = process.env.BOT_SERVICE_PORT || 3003;
 const CHANNELS_DIR = path.join(__dirname, 'channel-configs');
 
 // Kick OAuth Configuration
 const KICK_CLIENT_ID = process.env.KICK_CLIENT_ID;
 const KICK_CLIENT_SECRET = process.env.KICK_CLIENT_SECRET;
-const KICK_REDIRECT_URI = `${BASE_URL}/auth/kick-callback`;
+const KICK_REDIRECT_URI = `${BASE_URL}/twitch/kick-callback`;
 const KICK_TOKENS_FILE = path.join(__dirname, '..', 'Kick-Chatbot-Deployment', '.tokens.json');
 
 // Session configuration
@@ -41,10 +41,21 @@ app.use(session({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Legacy path compatibility: this dashboard moved from /auth to /twitch.
+// Old bookmarks, the !config chat message and bot-deployment.js's call to
+// /auth/token keep working by being rewritten onto the new paths internally.
+// Remove once nothing references /auth any more.
+app.use((req, res, next) => {
+    if (req.url === '/auth' || req.url.startsWith('/auth/') || req.url.startsWith('/auth?')) {
+        req.url = '/twitch' + req.url.slice('/auth'.length);
+    }
+    next();
+});
+
 // Authentication middleware
 function requireAuth(req, res, next) {
     if (!req.session.user) {
-        return res.redirect('/auth/login');
+        return res.redirect('/twitch/login');
     }
     next();
 }
@@ -294,15 +305,15 @@ async function getUserInfo(accessToken) {
 // Routes
 
 // Main dashboard - requires authentication
-app.get('/auth', requireAuth, (req, res) => {
+app.get('/twitch', requireAuth, (req, res) => {
     // User is authenticated, show their dashboard
     showUserDashboard(req.session.user.login, res, req.session.user);
 });
 
 // Login page
-app.get('/auth/login', (req, res) => {
+app.get('/twitch/login', (req, res) => {
     if (req.session.user) {
-        return res.redirect('/auth');
+        return res.redirect('/twitch');
     }
 
     const authUrl = generateLoginAuthUrl();
@@ -441,14 +452,14 @@ app.get('/auth/login', (req, res) => {
 });
 
 // Login callback
-app.get('/auth/login-callback', async (req, res) => {
+app.get('/twitch/login-callback', async (req, res) => {
     const { code, error } = req.query;
 
     if (error) {
         return res.status(400).send(`
             <h1>❌ Authentication Failed</h1>
             <p>Error: ${error}</p>
-            <a href="/auth/login">Try Again</a>
+            <a href="/twitch/login">Try Again</a>
         `);
     }
 
@@ -476,25 +487,25 @@ app.get('/auth/login-callback', async (req, res) => {
         };
 
         // Redirect to their dashboard
-        res.redirect('/auth');
+        res.redirect('/twitch');
 
     } catch (err) {
         console.error('Login failed:', err.response?.data || err.message);
         res.status(500).send(`
             <h1>❌ Authentication Error</h1>
             <p>Failed to verify your identity. Please try again.</p>
-            <a href="/auth/login">Back to Login</a>
+            <a href="/twitch/login">Back to Login</a>
         `);
     }
 });
 
 // Logout
-app.get('/auth/logout', (req, res) => {
+app.get('/twitch/logout', (req, res) => {
     req.session.destroy((err) => {
         if (err) {
             console.error('Session destruction error:', err);
         }
-        res.redirect('/auth/login');
+        res.redirect('/twitch/login');
     });
 });
 
@@ -565,9 +576,9 @@ async function showUserDashboard(username, res, userSession) {
                 `;
 
                 actions = `
-    <button class="btn-success" onclick="window.location.href = '/auth/refresh'">🔄 Refresh Token</button>
-    <button class="btn-primary" onclick="window.location.href = '/auth/generate'">🔐 Re-authenticate</button>
-    <button class="btn-danger" onclick="window.location.href = '/auth/revoke'">🗑️ Revoke Access</button>
+    <button class="btn-success" onclick="window.location.href = '/twitch/refresh'">🔄 Refresh Token</button>
+    <button class="btn-primary" onclick="window.location.href = '/twitch/generate'">🔐 Re-authenticate</button>
+    <button class="btn-danger" onclick="window.location.href = '/twitch/revoke'">🗑️ Revoke Access</button>
 `;
 
             } catch (error) {
@@ -579,15 +590,15 @@ async function showUserDashboard(username, res, userSession) {
                     `;
 
                     actions = `
-    <button class="btn-warning" onclick="window.location.href = '/auth/refresh'">🔄 Try Refresh</button>
-    <button class="btn-primary" onclick="window.location.href = '/auth/generate'">🔐 Re-authenticate</button>
-    <button class="btn-danger" onclick="window.location.href = '/auth/revoke'">🗑️ Remove Token</button>
+    <button class="btn-warning" onclick="window.location.href = '/twitch/refresh'">🔄 Try Refresh</button>
+    <button class="btn-primary" onclick="window.location.href = '/twitch/generate'">🔐 Re-authenticate</button>
+    <button class="btn-danger" onclick="window.location.href = '/twitch/revoke'">🗑️ Remove Token</button>
 `;
                 }
             }
         } else {
             actions = `
-    <button class="btn-primary" onclick="window.location.href = '/auth/generate'">🔐 Generate OAuth Token</button>
+    <button class="btn-primary" onclick="window.location.href = '/twitch/generate'">🔐 Generate OAuth Token</button>
 `;
         }
 
@@ -606,7 +617,7 @@ async function showUserDashboard(username, res, userSession) {
         // Check if user is the bot owner
         const botOwnerUsername = process.env.TWITCH_USERNAME;
         const isBotOwner = username.toLowerCase() === botOwnerUsername.toLowerCase();
-        const botTokenLink = isBotOwner ? '<a href="/auth/bot-token">🔧 Bot Token Manager</a> |' : '';
+        const botTokenLink = isBotOwner ? '<a href="/twitch/bot-token">🔧 Bot Token Manager</a> |' : '';
 
         // Load template
         const templatePath = path.join(__dirname, 'views', 'dashboard.html');
@@ -632,13 +643,13 @@ async function showUserDashboard(username, res, userSession) {
         res.status(500).send(`
             <h1>❌ Error Loading Dashboard</h1>
             <p>Failed to load dashboard for ${username}: ${error.message}</p>
-            <a href="/auth">Back to Dashboard</a>
+            <a href="/twitch">Back to Dashboard</a>
         `);
     }
 }
 
 // Generate OAuth for specific channel (SECURE - only for authenticated user's channel)
-app.get('/auth/generate', requireAuth, async (req, res) => {
+app.get('/twitch/generate', requireAuth, async (req, res) => {
     const username = req.session.user.login;
 
     // Check if channel config exists, create if not
@@ -656,16 +667,16 @@ app.get('/auth/generate', requireAuth, async (req, res) => {
 });
 
 // OAuth callback for channel authorization (SECURE)
-app.get('/auth/callback', async (req, res) => {
+app.get('/twitch/callback', async (req, res) => {
     const { code, state, error } = req.query;
 
     if (error) {
         console.error('OAuth authorization failed:', error);
-        return res.redirect(`/auth?error=${encodeURIComponent(error)}`);
+        return res.redirect(`/twitch?error=${encodeURIComponent(error)}`);
     }
 
     if (!state || !state.startsWith('channel_auth:')) {
-        return res.redirect('/auth?error=Invalid+request');
+        return res.redirect('/twitch?error=Invalid+request');
     }
 
     const stateParts = state.split(':');
@@ -675,7 +686,7 @@ app.get('/auth/callback', async (req, res) => {
         // Load existing channel config
         const config = await loadChannelConfig(channelName);
         if (!config) {
-            return res.redirect('/auth?error=Channel+not+found');
+            return res.redirect('/twitch?error=Channel+not+found');
         }
 
         // Exchange authorization code for access token
@@ -694,7 +705,7 @@ app.get('/auth/callback', async (req, res) => {
 
         // SECURITY: Verify the authenticating user matches the channel
         if (userInfo.login.toLowerCase() !== channelName.toLowerCase()) {
-            return res.redirect('/auth?error=Access+denied+-+channel+mismatch');
+            return res.redirect('/twitch?error=Access+denied+-+channel+mismatch');
         }
 
         // Save OAuth data to separate oauth.json file
@@ -718,22 +729,22 @@ app.get('/auth/callback', async (req, res) => {
         await tokenRenewalService.triggerEventSubReconnections([channelName]);
 
         console.log(`✅ OAuth tokens generated successfully for ${channelName}`);
-        res.redirect('/auth?generated=true');
+        res.redirect('/twitch?generated=true');
 
     } catch (err) {
         console.error('Token exchange failed:', err.response?.data || err.message);
-        res.redirect(`/auth?error=${encodeURIComponent('Token generation failed: ' + err.message)}`);
+        res.redirect(`/twitch?error=${encodeURIComponent('Token generation failed: ' + err.message)}`);
     }
 });
 
 // OAuth status page (SECURE - user can only view their own channel)
 // Redirect status to dashboard (status info already shown there)
-app.get('/auth/status', requireAuth, (req, res) => {
-    res.redirect('/auth');
+app.get('/twitch/status', requireAuth, (req, res) => {
+    res.redirect('/twitch');
 });
 
 // Refresh OAuth token (SECURE - user can only refresh their own)
-app.get('/auth/refresh', requireAuth, async (req, res) => {
+app.get('/twitch/refresh', requireAuth, async (req, res) => {
     const username = req.session.user.login;
 
     try {
@@ -747,8 +758,8 @@ app.get('/auth/refresh', requireAuth, async (req, res) => {
             return res.status(404).send(`
                 <h1>❌ Refresh Failed</h1>
                 <p>No refresh token found for your channel: ${username}</p>
-                <a href="/auth/generate">Generate New OAuth</a> |
-                <a href="/auth">Back to Dashboard</a>
+                <a href="/twitch/generate">Generate New OAuth</a> |
+                <a href="/twitch">Back to Dashboard</a>
             `);
         }
 
@@ -775,17 +786,17 @@ app.get('/auth/refresh', requireAuth, async (req, res) => {
         const tokenRenewalService = new TokenRenewalService();
         await tokenRenewalService.triggerEventSubReconnections([username]);
 
-        res.redirect('/auth?refreshed=true');
+        res.redirect('/twitch?refreshed=true');
 
     } catch (error) {
         console.error(`OAuth refresh failed for ${username}:`, error.response?.data || error.message);
         const errorMsg = error.response?.data?.message || error.message;
-        res.redirect('/auth?error=' + encodeURIComponent('Refresh failed: ' + errorMsg));
+        res.redirect('/twitch?error=' + encodeURIComponent('Refresh failed: ' + errorMsg));
     }
 });
 
 // Revoke OAuth token (SECURE - user can only revoke their own)
-app.get('/auth/revoke', requireAuth, async (req, res) => {
+app.get('/twitch/revoke', requireAuth, async (req, res) => {
     const username = req.session.user.login;
 
     try {
@@ -793,7 +804,7 @@ app.get('/auth/revoke', requireAuth, async (req, res) => {
         const oauthData = await getChannelOAuth(username);
 
         if (!config || !oauthData || !oauthData.access_token) {
-            return res.redirect('/auth?error=' + encodeURIComponent('No token found to revoke'));
+            return res.redirect('/twitch?error=' + encodeURIComponent('No token found to revoke'));
         }
 
         // Revoke token with Twitch
@@ -822,11 +833,11 @@ app.get('/auth/revoke', requireAuth, async (req, res) => {
         const tokenRenewalService = new TokenRenewalService();
         await tokenRenewalService.triggerEventSubReconnections([username]);
 
-        res.redirect('/auth?revoked=true');
+        res.redirect('/twitch?revoked=true');
 
     } catch (error) {
         console.error(`OAuth revocation failed for ${username}:`, error.response?.data || error.message);
-        res.redirect('/auth?error=' + encodeURIComponent('Revoke failed: ' + (error.response?.data?.message || error.message)));
+        res.redirect('/twitch?error=' + encodeURIComponent('Revoke failed: ' + (error.response?.data?.message || error.message)));
     }
 });
 
@@ -850,7 +861,7 @@ function validateChannelName(channelName) {
 }
 
 // API endpoint to get OAuth token for bot use (unchanged - this stays the same for bot access)
-app.get('/auth/token', async (req, res) => {
+app.get('/twitch/token', async (req, res) => {
     const channel = req.query.channel;
     if (!channel) {
         return res.status(400).json({ error: 'Channel parameter is required' });
@@ -951,7 +962,7 @@ app.get('/auth/token', async (req, res) => {
 });
 
 // Claude Voice Trigger Interface (SECURE - only for authenticated users)
-app.get('/auth/claude', requireAuth, async (req, res) => {
+app.get('/twitch/claude', requireAuth, async (req, res) => {
     try {
         const username = req.session.user.login;
         const templatePath = path.join(__dirname, 'views', 'claude-interface.html');
@@ -965,7 +976,7 @@ app.get('/auth/claude', requireAuth, async (req, res) => {
 });
 
 // Claude API endpoint for voice trigger (SECURE - only for authenticated users)
-app.post('/auth/api/claude', requireAuth, async (req, res) => {
+app.post('/twitch/api/claude', requireAuth, async (req, res) => {
     const username = req.session.user.login;
     const { prompt } = req.body;
 
@@ -1068,7 +1079,7 @@ app.post('/auth/api/claude', requireAuth, async (req, res) => {
 });
 
 // AI Text-to-Speech API endpoint (SECURE - only for authenticated users)
-app.post('/auth/api/tts', requireAuth, async (req, res) => {
+app.post('/twitch/api/tts', requireAuth, async (req, res) => {
     const { text, voice_id, volume } = req.body;
 
     console.log('🎤 NODE: TTS API request');
@@ -1222,7 +1233,7 @@ app.post('/auth/api/tts', requireAuth, async (req, res) => {
 });
 
 // OpenAI Whisper Speech-to-Text API endpoint (SECURE - only for authenticated users)
-app.post('/auth/api/whisper', requireAuth, async (req, res) => {
+app.post('/twitch/api/whisper', requireAuth, async (req, res) => {
     const { audio } = req.body;
 
     console.log('🎤 NODE: Whisper STT API request from', req.session.user.login);
@@ -1308,7 +1319,7 @@ function generateKickPKCE() {
 }
 
 // Kick OAuth: Start authentication flow
-app.get('/auth/kick-start', (req, res) => {
+app.get('/twitch/kick-start', (req, res) => {
     if (!KICK_CLIENT_ID) {
         return res.status(500).send('<h1>Kick OAuth not configured</h1><p>KICK_CLIENT_ID missing from environment</p>');
     }
@@ -1373,7 +1384,7 @@ app.get('/auth/kick-start', (req, res) => {
 });
 
 // Kick OAuth: Callback endpoint
-app.get('/auth/kick-callback', async (req, res) => {
+app.get('/twitch/kick-callback', async (req, res) => {
     const { code, state, error } = req.query;
 
     if (error) {
@@ -1381,7 +1392,7 @@ app.get('/auth/kick-callback', async (req, res) => {
         return res.status(400).send(`
             <h1>❌ Kick Authorization Failed</h1>
             <p>Error: ${error}</p>
-            <a href="/auth/kick-start">Try Again</a>
+            <a href="/twitch/kick-start">Try Again</a>
         `);
     }
 
@@ -1390,7 +1401,7 @@ app.get('/auth/kick-callback', async (req, res) => {
         return res.status(400).send(`
             <h1>❌ Invalid State</h1>
             <p>CSRF protection failed. Please try again.</p>
-            <a href="/auth/kick-start">Try Again</a>
+            <a href="/twitch/kick-start">Try Again</a>
         `);
     }
 
@@ -1399,7 +1410,7 @@ app.get('/auth/kick-callback', async (req, res) => {
         return res.status(400).send(`
             <h1>❌ Session Error</h1>
             <p>Code verifier not found. Please try again.</p>
-            <a href="/auth/kick-start">Try Again</a>
+            <a href="/twitch/kick-start">Try Again</a>
         `);
     }
 
@@ -1440,7 +1451,7 @@ app.get('/auth/kick-callback', async (req, res) => {
             <h1>✅ Kick Bot Authentication Successful!</h1>
             <p>Tokens have been saved. Your Kick deployment bot can now send messages.</p>
             <p>Token expires at: ${new Date(tokenData.expiresAt).toLocaleString()}</p>
-            <p><a href="/auth">Back to Dashboard</a></p>
+            <p><a href="/twitch">Back to Dashboard</a></p>
         `);
 
     } catch (err) {
@@ -1448,13 +1459,13 @@ app.get('/auth/kick-callback', async (req, res) => {
         res.status(500).send(`
             <h1>❌ Token Exchange Failed</h1>
             <p>Error: ${err.response?.data?.error_description || err.message}</p>
-            <a href="/auth/kick-start">Try Again</a>
+            <a href="/twitch/kick-start">Try Again</a>
         `);
     }
 });
 
 // Kick OAuth: Status check
-app.get('/auth/kick-status', async (req, res) => {
+app.get('/twitch/kick-status', async (req, res) => {
     try {
         const tokens = await loadKickTokens();
 
@@ -1478,7 +1489,7 @@ app.get('/auth/kick-status', async (req, res) => {
 });
 
 // Get all channels with OAuth status (API endpoint for bot admin use)
-app.get('/auth/channels', async (req, res) => {
+app.get('/twitch/channels', async (req, res) => {
     try {
         const files = await fs.readdir(CHANNELS_DIR);
         const channels = files
@@ -1751,7 +1762,7 @@ class BotTokenManager {
             // Only send once per threshold to avoid spam
             if (daysLeft <= 7) {
                 console.log('🚨 BOT TOKEN RENEWAL REQUIRED - Less than 7 days remaining!');
-                console.log(`🔗 Visit: ${BASE_URL}/auth/bot-token to renew`);
+                console.log(`🔗 Visit: ${BASE_URL}/twitch/bot-token to renew`);
 
                 // Send notification if we haven't notified at this level yet
                 if (this.lastNotificationDays === null || this.lastNotificationDays > daysLeft) {
@@ -1762,7 +1773,7 @@ class BotTokenManager {
 
         } catch (error) {
             console.log('❌ Bot token validation failed:', error.response?.data || error.message);
-            console.log(`🔗 Visit: ${BASE_URL}/auth/bot-token to generate new token`);
+            console.log(`🔗 Visit: ${BASE_URL}/twitch/bot-token to generate new token`);
 
             // Send critical notification for expired token (only once)
             if (this.lastNotificationDays !== 0) {
@@ -1943,9 +1954,9 @@ class BotTokenManager {
 }
 
 // Bot token management endpoints (separate from broadcaster OAuth)
-app.get('/auth/bot-token', requireAuth, (req, res) => {
+app.get('/twitch/bot-token', requireAuth, (req, res) => {
     const clientId = TWITCH_CLIENT_ID;
-    const redirectUri = `${BASE_URL}/auth/bot-token-callback`;
+    const redirectUri = `${BASE_URL}/twitch/bot-token-callback`;
     const scopes = 'chat:read+chat:edit+channel:read:subscriptions+moderator:manage:banned_users';
 
     // Check if logged in user is the bot owner
@@ -1959,7 +1970,7 @@ app.get('/auth/bot-token', requireAuth, (req, res) => {
             You are logged in as: <strong>${loggedInUser}</strong><br>
             Expected bot account: <strong>${expectedBotAccount}</strong><br><br>
             <strong>You MUST logout and login as the bot account to generate the bot token!</strong><br>
-            <a href="/auth/logout" style="color: white; text-decoration: underline;">Click here to logout</a>
+            <a href="/twitch/logout" style="color: white; text-decoration: underline;">Click here to logout</a>
         </div>
     ` : `
         <div class="success">
@@ -1985,7 +1996,7 @@ app.get('/auth/bot-token', requireAuth, (req, res) => {
             </style>
         </head>
         <body>
-            <a href="/auth/logout" class="logout-link">Logout</a>
+            <a href="/twitch/logout" class="logout-link">Logout</a>
             <h1>🤖 Bot Token Management (60-Day Implicit Flow)</h1>
 
             <div class="info">
@@ -2019,7 +2030,7 @@ app.get('/auth/bot-token', requireAuth, (req, res) => {
             <script>
                 // Function to refresh token status
                 function refreshTokenStatus() {
-                    fetch('/auth/bot-token-status')
+                    fetch('/twitch/bot-token-status')
                         .then(r => r.json())
                         .then(data => {
                             const statusDiv = document.getElementById('status');
@@ -2046,7 +2057,7 @@ app.get('/auth/bot-token', requireAuth, (req, res) => {
     `);
 });
 
-app.get('/auth/bot-token-callback', async (req, res) => {
+app.get('/twitch/bot-token-callback', async (req, res) => {
     res.send(`
         <!DOCTYPE html>
         <html>
@@ -2072,7 +2083,7 @@ app.get('/auth/bot-token-callback', async (req, res) => {
                 
                 if (token) {
                     // Save token
-                    fetch('/auth/bot-token-save', {
+                    fetch('/twitch/bot-token-save', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ token: token })
@@ -2089,7 +2100,7 @@ app.get('/auth/bot-token-callback', async (req, res) => {
                                 <p>Scopes: \${data.scopes.join(', ')}</p>
                                 <p>All bot instances are being restarted with the new token...</p>
                                 <div class="token-display">Token: \${token}</div>
-                                <p><a href="/auth/bot-token" style="color: #fff;">← Back to Bot Token Management</a></p>
+                                <p><a href="/twitch/bot-token" style="color: #fff;">← Back to Bot Token Management</a></p>
                             \`;
                             
                             // Refresh the status display on the main page
@@ -2101,7 +2112,7 @@ app.get('/auth/bot-token-callback', async (req, res) => {
                             resultDiv.innerHTML = \`
                                 <h3>❌ Failed to Update Token</h3>
                                 <p>Error: \${data.error}</p>
-                                <p><a href="/auth/bot-token" style="color: #fff;">← Try Again</a></p>
+                                <p><a href="/twitch/bot-token" style="color: #fff;">← Try Again</a></p>
                             \`;
                         }
                     })
@@ -2110,7 +2121,7 @@ app.get('/auth/bot-token-callback', async (req, res) => {
                         document.getElementById('result').innerHTML = \`
                             <h3>❌ Error Processing Token</h3>
                             <p>\${error.message}</p>
-                            <p><a href="/auth/bot-token" style="color: #fff;">← Try Again</a></p>
+                            <p><a href="/twitch/bot-token" style="color: #fff;">← Try Again</a></p>
                         \`;
                     });
                 } else {
@@ -2118,7 +2129,7 @@ app.get('/auth/bot-token-callback', async (req, res) => {
                     document.getElementById('result').innerHTML = \`
                         <h3>❌ No Token Received</h3>
                         <p>Authorization may have failed or been cancelled.</p>
-                        <p><a href="/auth/bot-token" style="color: #fff;">← Try Again</a></p>
+                        <p><a href="/twitch/bot-token" style="color: #fff;">← Try Again</a></p>
                     \`;
                 }
             </script>
@@ -2127,7 +2138,7 @@ app.get('/auth/bot-token-callback', async (req, res) => {
     `);
 });
 
-app.get('/auth/bot-token-status', async (req, res) => {
+app.get('/twitch/bot-token-status', async (req, res) => {
     try {
         const token = process.env.TWITCH_OAUTH?.replace('oauth:', '');
         if (!token) {
@@ -2150,7 +2161,7 @@ app.get('/auth/bot-token-status', async (req, res) => {
     }
 });
 
-app.post('/auth/bot-token-save', async (req, res) => {
+app.post('/twitch/bot-token-save', async (req, res) => {
     try {
         const { token } = req.body;
         
@@ -2206,7 +2217,7 @@ app.post('/auth/bot-token-save', async (req, res) => {
 });
 
 // App Access Token route for Chat Bot Badge
-app.get('/auth/generate-app-token', requireAuth, async (req, res) => {
+app.get('/twitch/generate-app-token', requireAuth, async (req, res) => {
     try {
         const appToken = await ensureAppAccessToken();
         res.json({
@@ -2231,7 +2242,7 @@ app.get('/auth/generate-app-token', requireAuth, async (req, res) => {
 // Test Telegram notification endpoint (disabled for security)
 // Uncomment to test Telegram notifications manually
 /*
-app.get('/auth/test-telegram', async (req, res) => {
+app.get('/twitch/test-telegram', async (req, res) => {
     try {
         const testNotifier = new TelegramNotifier();
         const result = await testNotifier.sendTestNotification();
@@ -2258,7 +2269,7 @@ const botTokenManager = new BotTokenManager();
 // Start the server
 app.listen(port, () => {
     console.log(`🔒 Secure Mr-AI-is-Here OAuth Manager listening at http://localhost:${port}`);
-    console.log(`🌐 Public URL: ${BASE_URL}/auth`);
+    console.log(`🌐 Public URL: ${BASE_URL}/twitch`);
     console.log(`🛡️ Security: Session-based authentication with channel ownership verification`);
 
     // Start auto-renewal service

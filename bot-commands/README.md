@@ -37,7 +37,7 @@ All commands are centralized in this folder and shared across all bot instances.
   - `!config redemption disable` - Disable redemption monitoring
   - `!config redemption duration [seconds]` - Set timeout duration (max 14 days)
   - `!config redemption-status` - Check redemption status
-- **Requirements:** Broadcaster OAuth setup at https://mr-ai.dev/auth
+- **Requirements:** Broadcaster OAuth setup at https://mr-ai.dev/twitch
 - **Note:** Bot will automatically restart after changing redemption settings
 
 #### Special Users Management

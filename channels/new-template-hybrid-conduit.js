@@ -797,7 +797,7 @@ async function main() {
               await sendChatMessageAPI(await getCachedChannelId(), `Current timeout duration: ${channelConfig.redemptionTimeoutDuration} seconds. Usage: !config redemption duration <seconds>`);
             }
           } else {
-            await sendChatMessageAPI(await getCachedChannelId(), "Usage: !config redemption enable/disable/duration <seconds> | Setup OAuth at https://mr-ai.dev/auth");
+            await sendChatMessageAPI(await getCachedChannelId(), "Usage: !config redemption enable/disable/duration <seconds> | Setup OAuth at https://mr-ai.dev/twitch");
           }
           break;
 

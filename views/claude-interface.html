@@ -383,7 +383,7 @@
             </div>
 
             <div class="back-link">
-                <a href="/auth">← Back to Dashboard</a>
+                <a href="/twitch">← Back to Dashboard</a>
             </div>
         </div>
     </div>
@@ -441,7 +441,7 @@
             responseSection.style.display = 'none';
 
             try {
-                const response = await fetch('/auth/api/claude', {
+                const response = await fetch('/twitch/api/claude', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -620,7 +620,7 @@
 
         async function speakWithAI(text, voiceId, volume) {
             // Generate speech using premium AI voices
-            const response = await fetch('/auth/api/tts', {
+            const response = await fetch('/twitch/api/tts', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1095,7 +1095,7 @@
                         try {
                             // Send to Whisper API
                             console.log('🎤 WHISPER: Sending to server...');
-                            const response = await fetch('/auth/api/whisper', {
+                            const response = await fetch('/twitch/api/whisper', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ audio: base64Audio })

@@ -205,7 +205,7 @@ async function main() {
   // NEW: Function to check OAuth status via API
   async function checkOAuthStatus(channelName) {
     try {
-      const response = await axios.get(`https://mr-ai.dev/auth/token?channel=${channelName}`);
+      const response = await axios.get(`https://mr-ai.dev/twitch/token?channel=${channelName}`);
       return {
         hasOAuth: true,
         username: response.data.username,
@@ -508,7 +508,7 @@ module.exports = {
                   return;
                 }
                 console.log(`stdout: ${stdout}`);
-                client.say(channel, `Added Mr-AI-is-Here bot to #${sanitizedUser}! 🚀 Generate OAuth tokens at https://mr-ai.dev/auth to enable full features. Check my about page for available commands.`);
+                client.say(channel, `Added Mr-AI-is-Here bot to #${sanitizedUser}! 🚀 Generate OAuth tokens at https://mr-ai.dev/twitch to enable full features. Check my about page for available commands.`);
               });
             } else {
               client.say(channel, `New bot deployment is currently disabled due to max capacity(${maxChannels}). Whisper @${process.env.TWITCH_OWNER} if you require this urgently for an exception.`);
@@ -534,7 +534,7 @@ module.exports = {
               return;
             }
             console.log(`stdout: ${stdout}`);
-            client.say(channel, `Restarting Mr-AI-is-Here bot for #${sanitizedUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/auth for full features.`);
+            client.say(channel, `Restarting Mr-AI-is-Here bot for #${sanitizedUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/twitch for full features.`);
           });
         } else {
           safePM2Restart(`twitch-${sanitizedUser}`, (error, stdout, stderr) => {
@@ -547,7 +547,7 @@ module.exports = {
               return;
             }
             console.log(`stdout: ${stdout}`);
-            client.say(channel, `Bot was offline, restarting Mr-AI-is-Here bot for #${sanitizedUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/auth for full features.`);
+            client.say(channel, `Bot was offline, restarting Mr-AI-is-Here bot for #${sanitizedUser}! 🔄 Generate OAuth tokens at https://mr-ai.dev/twitch for full features.`);
           });
         }
       });
@@ -792,7 +792,7 @@ ${appsConfig.join(',\n')}
         }
         console.log(`stdout: ${stdout}`);
 
-        client.say(channel, `✅ Redeployed & restarted ${redeployCount} Mr-AI-is-Here bots with new template! File watching enabled for OAuth auto-restart. OAuth tokens at https://mr-ai.dev/auth`);
+        client.say(channel, `✅ Redeployed & restarted ${redeployCount} Mr-AI-is-Here bots with new template! File watching enabled for OAuth auto-restart. OAuth tokens at https://mr-ai.dev/twitch`);
       });
     }
 
@@ -949,7 +949,7 @@ ${appsConfig.join(',\n')}
 
       const input = message.split(" ");
       if (input.length < 2) {
-        client.say(channel, "Usage: !enablemod <channel> - Enable moderation (OAuth required at https://mr-ai.dev/auth)");
+        client.say(channel, "Usage: !enablemod <channel> - Enable moderation (OAuth required at https://mr-ai.dev/twitch)");
         return;
       }
 
@@ -996,7 +996,7 @@ ${appsConfig.join(',\n')}
           if (oauthStatus.hasOAuth) {
             client.say(channel, `✅ Moderation enabled for #${targetChannel}! OAuth token detected. Bot restarted with full features including command exclusions.`);
           } else {
-            client.say(channel, `⚠️ Moderation enabled for #${targetChannel} but no OAuth token found. Generate token at https://mr-ai.dev/auth for full features.`);
+            client.say(channel, `⚠️ Moderation enabled for #${targetChannel} but no OAuth token found. Generate token at https://mr-ai.dev/twitch for full features.`);
           }
         });
 
@@ -1198,7 +1198,7 @@ ${appsConfig.join(',\n')}
         if (oauthStatus.hasOAuth) {
           client.say(channel, `✅ #${targetChannel}: OAuth active (${oauthStatus.username}) via ${oauthStatus.source}`);
         } else {
-          client.say(channel, `❌ #${targetChannel}: No OAuth token. Generate at https://mr-ai.dev/auth`);
+          client.say(channel, `❌ #${targetChannel}: No OAuth token. Generate at https://mr-ai.dev/twitch`);
         }
       } catch (error) {
         client.say(channel, `Error checking OAuth for ${targetChannel}: ${error.message}`);
@@ -1282,7 +1282,7 @@ ${appsConfig.join(',\n')}
         } else {
           try {
             client.say(`#${targetChannel}`,
-              `🔐 Hi @${targetChannel}! Generate OAuth tokens for Mr-AI-is-Here bot at https://mr-ai.dev/auth ` +
+              `🔐 Hi @${targetChannel}! Generate OAuth tokens for Mr-AI-is-Here bot at https://mr-ai.dev/twitch ` +
               `to unlock moderation and advanced features! Just sign in with your Twitch account.`
             );
             client.say(channel, `✅ OAuth reminder sent to #${targetChannel}`);
@@ -1426,7 +1426,7 @@ ${appsConfig.join(',\n')}
         "!oauthstatus <channel> | !bulkoauth | !oauthreminder <channel> | " +
         "!testmigrate <channel> | !batchmigrate [size] | !rollback <channel> | !rollbackall | " +
         "!updateconfigs | !refreshtoken | !tokenstatus | " +
-        "OAuth Dashboard: https://mr-ai.dev/auth";
+        "OAuth Dashboard: https://mr-ai.dev/twitch";
 
       client.say(channel, helpMessage);
     }
