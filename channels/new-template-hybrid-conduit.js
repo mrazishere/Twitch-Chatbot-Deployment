@@ -607,67 +607,102 @@ async function main() {
   }
 
   // Setup Conduits for Users in Chat listing + Chat Bot Badge
-  console.log(`[${getTimestamp()}] info: Setting up EventSub Conduits for Users in Chat listing...`);
-  try {
-    // Connect to EventSub WebSocket
-    const WebSocket = require('ws');
-    const ws = new WebSocket('wss://eventsub.wss.twitch.tv/ws');
-    let sessionId = null;
-    let conduitId = null;
+  //
+  // After a reboot the EventSub Manager (port 3003) can come up a minute after
+  // this bot. A failed registration used to leave the bot listed as a plain
+  // viewer, without its bot badge, until someone restarted it by hand. So wait
+  // for the manager first, and retry the registration if it still fails.
+  //
+  // A closed socket is deliberately NOT reconnected: every bot shares the one
+  // conduit shard, the last bot to register owns it, and the others' sockets
+  // are closed by Twitch. Reconnecting would make the bots take it in turns.
+  const CONDUIT_MAX_ATTEMPTS = 10;
+  const CONDUIT_RETRY_MS = 30000;
 
-    ws.on('open', () => {
-      console.log(`[${getTimestamp()}] info: ✅ EventSub WebSocket connected for conduit`);
-    });
-
-    ws.on('message', async (data) => {
+  async function waitForEventSubManager() {
+    for (let i = 0; i < 30; i++) {
       try {
-        const message = JSON.parse(data);
-
-        if (message.metadata?.message_type === 'session_welcome') {
-          sessionId = message.payload.session.id;
-          console.log(`[${getTimestamp()}] info: ✅ WebSocket session ID: ${sessionId}`);
-
-          // Use centralized conduit service with self-healing
-          try {
-            // Call EventSub Manager to add WebSocket shard (with self-healing)
-            const response = await axios.post('http://localhost:3003/conduit/add-shard', {
-              sessionId: sessionId
-            });
-
-            if (response.data.success) {
-              conduitId = response.data.conduit.id;
-              console.log(`[${getTimestamp()}] info: ✅ Using centralized conduit: ${conduitId}`);
-
-              const channelId = await getCachedChannelId();
-              await subscribeToEventSubViaConduit(conduitId, channelId);
-
-              console.log(`[${getTimestamp()}] info: 🎉 Conduits setup complete - Bot should appear in Users in Chat list!`);
-            } else {
-              throw new Error('Failed to add WebSocket shard via conduit service');
-            }
-          } catch (error) {
-            console.error(`[${getTimestamp()}] error: Conduits setup failed:`, error.message);
-          }
-        }
-
-        // We don't need to handle notifications here since TMI.js handles chat
-
+        await axios.get('http://localhost:3003/health', { timeout: 3000 });
+        return;
       } catch (error) {
-        console.error(`[${getTimestamp()}] error: WebSocket message error:`, error.message);
+        if (i === 0) {
+          console.log(`[${getTimestamp()}] info: Waiting for EventSub Manager before registering conduit...`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 10000));
       }
-    });
-
-    ws.on('error', (error) => {
-      console.error(`[${getTimestamp()}] error: EventSub WebSocket error:`, error.message);
-    });
-
-    ws.on('close', () => {
-      console.log(`[${getTimestamp()}] warning: EventSub WebSocket connection closed`);
-    });
-
-  } catch (error) {
-    console.error(`[${getTimestamp()}] error: Failed to setup EventSub Conduits:`, error.message);
+    }
+    console.log(`[${getTimestamp()}] warning: EventSub Manager still unreachable after 5 minutes - trying anyway`);
   }
+
+  function setupConduit(attempt = 1) {
+    try {
+      // Connect to EventSub WebSocket
+      const WebSocket = require('ws');
+      const ws = new WebSocket('wss://eventsub.wss.twitch.tv/ws');
+      let sessionId = null;
+      let conduitId = null;
+
+      ws.on('open', () => {
+        console.log(`[${getTimestamp()}] info: ✅ EventSub WebSocket connected for conduit`);
+      });
+
+      ws.on('message', async (data) => {
+        try {
+          const message = JSON.parse(data);
+
+          if (message.metadata?.message_type === 'session_welcome') {
+            sessionId = message.payload.session.id;
+            console.log(`[${getTimestamp()}] info: ✅ WebSocket session ID: ${sessionId}`);
+
+            // Use centralized conduit service with self-healing
+            try {
+              // Call EventSub Manager to add WebSocket shard (with self-healing)
+              const response = await axios.post('http://localhost:3003/conduit/add-shard', {
+                sessionId: sessionId
+              });
+
+              if (response.data.success) {
+                conduitId = response.data.conduit.id;
+                console.log(`[${getTimestamp()}] info: ✅ Using centralized conduit: ${conduitId}`);
+
+                const channelId = await getCachedChannelId();
+                await subscribeToEventSubViaConduit(conduitId, channelId);
+
+                console.log(`[${getTimestamp()}] info: 🎉 Conduits setup complete - Bot should appear in Users in Chat list!`);
+              } else {
+                throw new Error('Failed to add WebSocket shard via conduit service');
+              }
+            } catch (error) {
+              console.error(`[${getTimestamp()}] error: Conduits setup failed (attempt ${attempt}/${CONDUIT_MAX_ATTEMPTS}):`, error.message || error.code || error);
+              ws.close();
+              if (attempt < CONDUIT_MAX_ATTEMPTS) {
+                setTimeout(() => setupConduit(attempt + 1), CONDUIT_RETRY_MS);
+              }
+            }
+          }
+
+          // We don't need to handle notifications here since TMI.js handles chat
+
+        } catch (error) {
+          console.error(`[${getTimestamp()}] error: WebSocket message error:`, error.message);
+        }
+      });
+
+      ws.on('error', (error) => {
+        console.error(`[${getTimestamp()}] error: EventSub WebSocket error:`, error.message);
+      });
+
+      ws.on('close', () => {
+        console.log(`[${getTimestamp()}] warning: EventSub WebSocket connection closed`);
+      });
+
+    } catch (error) {
+      console.error(`[${getTimestamp()}] error: Failed to setup EventSub Conduits:`, error.message);
+    }
+  }
+
+  console.log(`[${getTimestamp()}] info: Setting up EventSub Conduits for Users in Chat listing...`);
+  waitForEventSubManager().then(() => setupConduit());
 
   // Channel point redemptions handled by separate EventSub service
   if (channelConfig.redemptionEnabled) {
