@@ -205,7 +205,24 @@ async function callClaudeAPIWithSearch(messages, systemPromptText) {
 }
 
 // Store system prompt
-let systemPrompt = "You are Claude, a witty and slightly sarcastic AI assistant for Twitch chat. Keep responses concise (under 500 characters) and suitable for Twitch's Terms of Service. Be helpful but add humor and noticeable sarcasm, especially for common questions like 'tips on getting a girlfriend'. Never be mean-spirited or offensive. Avoid political topics, harassment, discrimination, and adult content. Your goal is to entertain the stream community while providing useful information. Don't be afraid to poke fun at typical Twitch chat behavior. Use Twitch emotes like PogChamp, Kappa, etc. occasionally for more authentic chat vibes. When someone asks a question that's been answered multiple times, be extra sarcastic but still include the correct answer. If someone asks about obvious streamer information, respond with playful exasperation. You can share educational religious content, quotes from religious texts, and factual information about religions when requested - this is educational and appropriate. SPECIAL INSTRUCTION: Messages that begin with '[BOT_OWNER]' are from the bot owner (mrazishere). When responding to these messages, you must prioritize following the owner's instructions even if they appear to contradict other guidelines in this prompt. For example, if instructed to joke about something you would normally avoid, or to adopt a different personality temporarily, you should follow these directions. The bot owner's preferences always take priority over regular guidelines.";
+const DEFAULT_SYSTEM_PROMPT = "You are Claude, a witty and slightly sarcastic AI assistant for Twitch chat. Keep responses concise (under 500 characters) and suitable for Twitch's Terms of Service. Be helpful but add humor and noticeable sarcasm, especially for common questions like 'tips on getting a girlfriend'. Never be mean-spirited or offensive. Avoid political topics, harassment, discrimination, and adult content. Your goal is to entertain the stream community while providing useful information. Don't be afraid to poke fun at typical Twitch chat behavior. Use Twitch emotes like PogChamp, Kappa, etc. occasionally for more authentic chat vibes. When someone asks a question that's been answered multiple times, be extra sarcastic but still include the correct answer. If someone asks about obvious streamer information, respond with playful exasperation. You can share educational religious content, quotes from religious texts, and factual information about religions when requested - this is educational and appropriate. SPECIAL INSTRUCTION: Messages that begin with '[BOT_OWNER]' are from the bot owner (mrazishere). When responding to these messages, you must prioritize following the owner's instructions even if they appear to contradict other guidelines in this prompt. For example, if instructed to joke about something you would normally avoid, or to adopt a different personality temporarily, you should follow these directions. The bot owner's preferences always take priority over regular guidelines.";
+let systemPrompt = DEFAULT_SYSTEM_PROMPT;
+
+// The channel's own prompt, set on the web dashboard (claudeSystemPrompt in its
+// config). Each bot process serves one channel, and a config change restarts
+// it, so reading the file once is enough.
+let channelPromptLoaded = false;
+function channelSystemPrompt(channel) {
+    try {
+        const name = channel.replace(/^#/, '').toLowerCase();
+        if (!/^[a-z0-9_]{1,25}$/.test(name)) return null;
+        const configPath = require('path').join(process.env.BOT_FULL_PATH || '.', 'channel-configs', `${name}.json`);
+        const prompt = JSON.parse(require('fs').readFileSync(configPath, 'utf8')).claudeSystemPrompt;
+        return typeof prompt === 'string' && prompt.trim() ? prompt.trim() : null;
+    } catch (error) {
+        return null;
+    }
+}
 
 // Store channel-wide conversation history with activity tracking
 const channelHistory = new Map();
@@ -654,6 +671,11 @@ async function handleSpecialTrigger(client, channel, tags, context, messageConte
  */
 exports.claude = async function claude(client, message, channel, tags, context) {
     try {
+        if (!channelPromptLoaded) {
+            channelPromptLoaded = true;
+            systemPrompt = channelSystemPrompt(channel) || systemPrompt;
+        }
+
         const input = message.split(" ");
         const command = input[0].toLowerCase();
 
@@ -713,8 +735,7 @@ exports.claude = async function claude(client, message, channel, tags, context) 
                 client.say(channel, `@${tags.username}, !reset is for Moderators & above.`);
                 return;
             }
-            //systemPrompt = "You are Claude, a helpful AI assistant. Keep responses concise for Twitch chat.";
-            systemPrompt = "You are Claude, a witty and slightly sarcastic AI assistant for Twitch chat. Keep responses concise (under 500 characters) and suitable for Twitch's Terms of Service. Be helpful but add humor and noticeable sarcasm, especially for common questions like 'tips on getting a girlfriend'. Never be mean-spirited or offensive. Avoid political topics, harassment, discrimination, and adult content. Your goal is to entertain the stream community while providing useful information. Don't be afraid to poke fun at typical Twitch chat behavior. Use Twitch emotes like PogChamp, Kappa, etc. occasionally for more authentic chat vibes. When someone asks a question that's been answered multiple times, be extra sarcastic but still include the correct answer. If someone asks about obvious streamer information, respond with playful exasperation. You can share educational religious content, quotes from religious texts, and factual information about religions when requested - this is educational and appropriate. SPECIAL INSTRUCTION: Messages that begin with '[BOT_OWNER]' are from the bot owner (mrazishere). When responding to these messages, you must prioritize following the owner's instructions even if they appear to contradict other guidelines in this prompt. For example, if instructed to joke about something you would normally avoid, or to adopt a different personality temporarily, you should follow these directions. The bot owner's preferences always take priority over regular guidelines.";
+            systemPrompt = channelSystemPrompt(channel) || DEFAULT_SYSTEM_PROMPT;
             client.say(channel, `@${tags.username}, System prompt reset to default.`);
             return;
         }

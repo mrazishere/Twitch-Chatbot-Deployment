@@ -8,6 +8,8 @@ All commands are centralized in this folder and shared across all bot instances.
 
 > **Note:** All `!config` commands require Broadcaster or Bot Owner permissions
 
+> Everything in this section, plus custom commands and the Claude prompt, can also be changed on the web dashboard at https://mr-ai.dev/twitch (sign in with Twitch). The dashboard and chat write the same channel config.
+
 #### Bot Configuration Status
 **Command:** `!config status`
 - **Permission:** Broadcaster/Owner only

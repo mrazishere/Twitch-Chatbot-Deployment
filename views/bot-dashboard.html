@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mr-AI-is-Here Twitch bot</title>
+    <style>
+        /* Same visual language as the Kick dashboard (kpp-dashboard): near-black
+           page, neutral cards, one brand accent. Twitch purple stands in for Kick green. */
+        :root {
+            --bg: #0a0a0a;
+            --card: #0d0d0d;
+            --field: #171717;
+            --hover: #262626;
+            --line: #262626;
+            --line-strong: #404040;
+            --text: #e5e5e5;
+            --dim: #a3a3a3;
+            --faint: #737373;
+            --accent: #9146ff;
+            --accent-text: #b388ff;
+            --amber: #fbbf24;
+            --red: #f87171;
+        }
+        * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        a { color: var(--accent-text); }
+        p { margin: 0; }
+        code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--faint); }
+        svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+        /* Header */
+        body > header { border-bottom: 1px solid var(--line); background: rgba(10, 10, 10, 0.8); }
+        .bar { max-width: 1152px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .bar-left, .bar-right { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .channel-name { font-size: 16px; font-weight: 600; color: var(--accent-text); overflow: hidden; text-overflow: ellipsis; }
+        .who { color: var(--faint); }
+        .switcher { border-top: 1px solid #171717; }
+        .switcher .bar { justify-content: flex-start; padding-top: 8px; padding-bottom: 8px; gap: 8px; }
+        .caption { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); }
+        .chip { border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px 12px; font-size: 12px; color: var(--dim); text-decoration: none; }
+        .chip:hover { border-color: var(--faint); color: var(--text); }
+        .chip.current { border-color: rgba(145, 70, 255, 0.5); background: rgba(145, 70, 255, 0.12); color: var(--accent-text); }
+
+        .badge { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-strong); background: var(--field); border-radius: 999px; padding: 3px 12px; font-size: 12px; font-weight: 500; color: var(--dim); white-space: nowrap; }
+        .badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+        .badge.on { border-color: rgba(145, 70, 255, 0.4); background: rgba(145, 70, 255, 0.12); color: var(--accent-text); }
+        .badge.on i { background: var(--accent-text); }
+        .badge.warn { border-color: rgba(251, 191, 36, 0.35); background: rgba(251, 191, 36, 0.08); color: var(--amber); }
+        .badge.warn i { background: var(--amber); }
+
+        /* Page */
+        main { max-width: 896px; margin: 0 auto; padding: 32px 24px 64px; }
+        .intro { color: var(--faint); margin-bottom: 24px; }
+        .card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); margin-bottom: 20px; }
+        .card > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 20px; border-bottom: 1px solid var(--line); min-height: 58px; }
+        .card h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; display: flex; align-items: center; gap: 10px; }
+        .card h2 svg { color: var(--faint); }
+        .card .body { padding: 16px 20px; }
+        .card .body > * + * { margin-top: 20px; }
+        .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .note { font-size: 12px; line-height: 1.6; color: var(--faint); }
+        .note.amber { color: var(--amber); }
+
+        /* Buttons */
+        button { font: inherit; cursor: pointer; }
+        .btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-strong); background: var(--field); color: var(--text); border-radius: 8px; padding: 7px 14px; font-size: 14px; font-weight: 500; text-decoration: none; transition: background 0.15s, border-color 0.15s; }
+        .btn:hover { background: var(--hover); border-color: #525252; }
+        .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .btn.primary:hover { filter: brightness(1.12); }
+        .btn.danger { border-color: #7f1d1d; background: rgba(69, 10, 10, 0.5); color: var(--red); }
+        .btn.danger:hover { background: #450a0a; }
+        .btn.small { padding: 4px 10px; font-size: 12px; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        /* Stats */
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px 24px; margin: 0; }
+        .stats.two { grid-template-columns: repeat(2, 1fr); }
+        .stats dt { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); }
+        .stats dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+        .state { display: flex; align-items: center; gap: 8px; }
+        .state.good { color: var(--accent-text); }
+        .state.amber { color: var(--amber); }
+
+        /* Toggle switch */
+        .toggle { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+        .toggle .label { font-weight: 500; }
+        .toggle .note { margin-top: 4px; }
+        .switch { position: relative; flex: none; width: 44px; height: 24px; border: 0; border-radius: 999px; background: var(--line-strong); transition: background 0.15s; padding: 0; }
+        .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left 0.15s; }
+        .switch[aria-pressed="true"] { background: var(--accent); }
+        .switch[aria-pressed="true"]::after { left: 22px; }
+
+        /* Fields */
+        .field > label, .field > .caption { display: block; margin-bottom: 6px; }
+        input[type="text"], input[type="number"], select, textarea {
+            width: 100%; background: var(--field); color: var(--text); border: 1px solid var(--line-strong);
+            border-radius: 8px; padding: 8px 12px; font: inherit; outline: none; transition: border-color 0.15s;
+        }
+        input::placeholder, textarea::placeholder { color: #525252; }
+        input:focus, select:focus, textarea:focus { border-color: var(--faint); }
+        input:disabled { opacity: 0.4; }
+        textarea { resize: vertical; min-height: 84px; }
+        .field .note { margin-top: 6px; }
+        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .prefix { display: flex; align-items: center; background: var(--field); border: 1px solid var(--line-strong); border-radius: 8px; }
+        .prefix span { padding-left: 12px; color: var(--faint); }
+        .prefix input { border: 0; background: none; padding-left: 2px; }
+
+        /* Commands */
+        .cmd-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 16px; }
+        .cmd { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; min-width: 0; }
+        .cmd:hover { background: var(--field); }
+        .cmd input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; margin: 0; }
+        .cmd span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cmd code { margin-left: auto; white-space: nowrap; padding-left: 8px; }
+        .cmd.off span { color: var(--faint); }
+
+        /* Custom commands */
+        .rows > div { display: flex; align-items: flex-start; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
+        .rows > div:first-child { border-top: 0; padding-top: 0; }
+        .rows > div:last-child { padding-bottom: 0; }
+        .rows .main { flex: 1; min-width: 0; }
+        .rows .name { font-weight: 500; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .rows .response { color: var(--dim); overflow-wrap: anywhere; margin-top: 2px; }
+        .tag { font-size: 11px; font-weight: 400; color: var(--dim); background: var(--hover); border-radius: 4px; padding: 1px 6px; }
+        .panel { border: 1px solid var(--line); background: rgba(23, 23, 23, 0.4); border-radius: 8px; padding: 16px; }
+        .panel > * + * { margin-top: 12px; }
+        .panel .title { font-weight: 500; }
+
+        .banner { display: none; align-items: flex-start; gap: 12px; border: 1px solid rgba(145, 70, 255, 0.35); background: rgba(145, 70, 255, 0.1); color: var(--accent-text); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; }
+        .banner svg { margin-top: 2px; }
+        .banner.show { display: flex; }
+        .banner.error { border-color: #7f1d1d; background: rgba(69, 10, 10, 0.4); color: var(--red); }
+        .banner span { flex: 1; }
+        .banner button { background: none; border: 0; color: inherit; padding: 0; font-size: 18px; line-height: 1; opacity: 0.7; }
+
+        .copy { display: flex; gap: 8px; }
+        .copy input { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); }
+        pre { margin: 0; background: #050505; border: 1px solid var(--line); border-radius: 8px; padding: 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow-y: auto; }
+
+        @media (max-width: 640px) {
+            .bar, main { padding-left: 16px; padding-right: 16px; }
+            main { padding-top: 24px; }
+            .who { display: none; }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .cmd-grid, .grid2 { grid-template-columns: 1fr; }
+            .card > header, .card .body { padding-left: 16px; padding-right: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <svg style="display: none" aria-hidden="true">
+        <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+        <symbol id="i-key" viewBox="0 0 24 24"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+        <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+        <symbol id="i-gift" viewBox="0 0 24 24"><path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></symbol>
+        <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+        <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8"/></symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5"/></symbol>
+        <symbol id="i-power" viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    </svg>
+
+    <header>
+        <div class="bar">
+            <div class="bar-left">
+                <span class="channel-name" id="channelName"></span>
+                <span id="headBadge"></span>
+            </div>
+            <div class="bar-right">
+                <span class="who" id="who"></span>
+                <a class="btn" href="/twitch/logout">Sign out</a>
+            </div>
+        </div>
+        <div class="switcher" id="switcher" hidden><div class="bar" id="switcherBar"></div></div>
+    </header>
+
+    <main>
+        <p class="intro">Mr-AI-is-Here bot for Twitch. Everything here can also be done in chat with <code>!config</code>.</p>
+        <div class="banner" id="banner" role="status"><svg id="bannerIcon"><use href="#i-check"/></svg><span id="bannerText"></span><button type="button" id="bannerClose" aria-label="Dismiss">&times;</button></div>
+
+        <section class="card">
+            <header>
+                <h2><svg><use href="#i-activity"/></svg>Bot status</h2>
+                <div class="actions" id="botActions"></div>
+            </header>
+            <div class="body">
+                <dl class="stats">
+                    <div><dt>Status</dt><dd id="stStatus"></dd></div>
+                    <div><dt>Uptime</dt><dd id="stUptime"></dd></div>
+                    <div><dt>Restarts</dt><dd id="stRestarts"></dd></div>
+                    <div><dt>Memory</dt><dd id="stMemory"></dd></div>
+                </dl>
+                <p class="note" id="botNote"></p>
+            </div>
+        </section>
+
+        <section class="card">
+            <header>
+                <h2><svg><use href="#i-key"/></svg>Twitch connection</h2>
+                <div class="actions" id="accessActions"></div>
+            </header>
+            <div class="body">
+                <div class="state" id="acState"></div>
+                <dl class="stats two" id="acStats">
+                    <div><dt>Permissions</dt><dd id="acScopes"></dd></div>
+                    <div><dt>Last updated</dt><dd id="acUpdated"></dd></div>
+                </dl>
+                <p class="note" id="accessNote"></p>
+            </div>
+        </section>
+
+        <section class="card" id="cardCommands">
+            <header>
+                <h2><svg><use href="#i-check"/></svg>Commands</h2>
+                <div class="actions">
+                    <span class="note" id="commandSummary"></span>
+                    <button class="btn primary" id="saveCommands" disabled>Save</button>
+                </div>
+            </header>
+            <div class="body">
+                <div class="cmd-grid" id="commandGrid"></div>
+                <div class="field">
+                    <label class="caption" for="otherExcluded">Other blocked command words</label>
+                    <input type="text" id="otherExcluded" autocomplete="off" placeholder="define, catch">
+                    <p class="note">Blocks one command word without turning its whole module off. Separate with commas.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <header>
+                <h2><svg><use href="#i-terminal"/></svg>Custom commands</h2>
+                <div class="actions"><button class="btn" id="addCustom"><svg><use href="#i-plus"/></svg>Add</button></div>
+            </header>
+            <div class="body">
+                <div class="panel" id="customPanel" hidden>
+                    <div class="title" id="customTitle"></div>
+                    <div class="grid2">
+                        <div class="field">
+                            <label class="caption" for="customName">Command</label>
+                            <div class="prefix"><span>!</span><input type="text" id="customName" maxlength="25" autocomplete="off" placeholder="discord"></div>
+                        </div>
+                        <div class="field">
+                            <label class="caption" for="customAccess">Who can use it</label>
+                            <select id="customAccess">
+                                <option value="n">Everyone</option>
+                                <option value="v">VIPs and moderators</option>
+                                <option value="y">Moderators only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="caption" for="customResponse">Response</label>
+                        <textarea id="customResponse" maxlength="500"></textarea>
+                        <p class="note">Variables: <code>$counter</code> times used, <code>$user1</code> the caller, <code>$user2</code> the mentioned user, <code>$percentage</code>, <code>$streamerp</code>, <code>$ynm</code> yes / no / maybe.</p>
+                    </div>
+                    <div class="field" id="customCounterField" style="max-width: 160px">
+                        <label class="caption" for="customCounter">Times used</label>
+                        <input type="number" id="customCounter" min="0">
+                    </div>
+                    <div class="actions">
+                        <button class="btn primary" id="customSave">Save command</button>
+                        <button class="btn" id="customCancel">Cancel</button>
+                    </div>
+                </div>
+                <div class="rows" id="customRows"></div>
+            </div>
+        </section>
+
+        <section class="card" id="cardSettings">
+            <header>
+                <h2><svg><use href="#i-shield"/></svg>Moderation and channel</h2>
+                <div class="actions"><button class="btn primary" id="saveSettings" disabled>Save</button></div>
+            </header>
+            <div class="body">
+                <div class="toggle">
+                    <div>
+                        <div class="label">Moderation</div>
+                        <p class="note" id="moderationNote"></p>
+                    </div>
+                    <button type="button" class="switch" id="moderationEnabled" aria-pressed="false" aria-label="Moderation"></button>
+                </div>
+                <div class="field">
+                    <label class="caption" for="specialUsers">Special users</label>
+                    <input type="text" id="specialUsers" autocomplete="off" placeholder="user1, user2">
+                    <p class="note">Can use restricted commands such as !snipecd without being a moderator. Separate with commas.</p>
+                </div>
+                <div class="field">
+                    <label class="caption" for="location">Location</label>
+                    <input type="text" id="location" autocomplete="off" placeholder="singapore, california, hanoi">
+                    <p class="note" id="timezoneNote"></p>
+                </div>
+            </div>
+        </section>
+
+        <section class="card" id="cardPoints">
+            <header>
+                <h2><svg><use href="#i-gift"/></svg>Channel points</h2>
+                <div class="actions"><button class="btn primary" id="savePoints" disabled>Save</button></div>
+            </header>
+            <div class="body">
+                <div class="toggle">
+                    <div>
+                        <div class="label">Timeout reward</div>
+                        <p class="note">A viewer redeems a channel-point reward and names a user, and the bot times that user out. Needs your Twitch account connected above.</p>
+                    </div>
+                    <button type="button" class="switch" id="redemptionEnabled" aria-pressed="false" aria-label="Timeout reward"></button>
+                </div>
+                <div>
+                    <div class="grid2">
+                        <div class="field">
+                            <label class="caption" for="rewardSelect">Reward</label>
+                            <select id="rewardSelect"></select>
+                        </div>
+                        <div class="field">
+                            <label class="caption" for="timeoutDuration">Timeout length (seconds)</label>
+                            <input type="number" id="timeoutDuration" min="1" max="1209600">
+                        </div>
+                    </div>
+                    <p class="note" id="rewardNote" style="margin-top: 6px">With no reward chosen, any reward whose title contains timeout, ban, silence, mute or penalty counts.</p>
+                </div>
+                <div class="toggle">
+                    <div>
+                        <div class="label">Restricted mode</div>
+                        <p class="note">Only you, the bot owner and the users below can time people out. Everyone else just loses their points.</p>
+                    </div>
+                    <button type="button" class="switch" id="testMode" aria-pressed="false" aria-label="Restricted mode"></button>
+                </div>
+                <div class="field">
+                    <label class="caption" for="timeoutUsers">Users allowed in restricted mode</label>
+                    <input type="text" id="timeoutUsers" autocomplete="off" placeholder="user1, user2">
+                </div>
+            </div>
+        </section>
+
+        <section class="card" id="cardClaude">
+            <header>
+                <h2><svg><use href="#i-message"/></svg>Claude</h2>
+                <div class="actions">
+                    <a class="btn" id="claudeVoice" href="/twitch/claude" hidden>Voice interface</a>
+                    <button class="btn primary" id="saveClaude" disabled>Save</button>
+                </div>
+            </header>
+            <div class="body">
+                <div class="field">
+                    <label class="caption" for="claudePrompt">System prompt</label>
+                    <textarea id="claudePrompt" maxlength="2000" style="min-height: 150px" placeholder="Leave empty to use the bot's default personality."></textarea>
+                    <p class="note">How Claude behaves in your chat for !claude and !research. A moderator's !system in chat overrides this until the bot restarts, and !reset returns to it.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <header><h2><svg><use href="#i-clock"/></svg>Overlay and games</h2></header>
+            <div class="body">
+                <div class="field">
+                    <span class="caption">Countdown overlay, for an OBS browser source</span>
+                    <div class="copy"><input type="text" id="overlayUrl" readonly><button class="btn" id="copyOverlay">Copy</button></div>
+                </div>
+                <dl class="stats two">
+                    <div><dt>Active countdowns</dt><dd id="ovCountdowns"></dd></div>
+                    <div><dt>Wordle</dt><dd id="ovWordle"></dd></div>
+                </dl>
+            </div>
+        </section>
+
+        <section class="card">
+            <header>
+                <h2><svg><use href="#i-file"/></svg>Logs</h2>
+                <div class="actions"><button class="btn" id="refreshLogs"><svg><use href="#i-refresh"/></svg>Refresh</button></div>
+            </header>
+            <div class="body"><pre id="logOutput">Loading...</pre></div>
+        </section>
+    </main>
+
+    <script>
+        const $ = id => document.getElementById(id);
+        const ACCESS = { n: 'Everyone', v: 'VIP+', y: 'Mods only' };
+        let me = null;
+        let channel = null;
+        let state = null;
+        let editing = null;
+
+        function banner(text, isError) {
+            $('bannerText').textContent = text;
+            $('bannerIcon').firstElementChild.setAttribute('href', isError ? '#i-alert' : '#i-check');
+            $('banner').className = 'banner show' + (isError ? ' error' : '');
+            clearTimeout(banner.timer);
+            if (!isError) banner.timer = setTimeout(() => { $('banner').className = 'banner'; }, 6000);
+            window.scrollTo({ top: 0 });
+        }
+
+        async function api(path, options = {}) {
+            const headers = { 'X-Requested-With': 'twitch-dashboard' };
+            if (options.body) headers['Content-Type'] = 'application/json';
+            const response = await fetch('/twitch/api/bot' + path, {
+                method: options.method || 'GET',
+                headers,
+                body: options.body ? JSON.stringify(options.body) : undefined,
+                credentials: 'same-origin'
+            });
+            if (response.status === 401) {
+                window.location.href = '/twitch/login';
+                throw new Error('Signed out');
+            }
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'Request failed');
+            return data;
+        }
+
+        // Runs a save with the button disabled meanwhile, and shows the failure.
+        async function act(button, work) {
+            button.disabled = true;
+            try {
+                await work();
+            } catch (error) {
+                banner(error.message, true);
+                button.disabled = false;
+            }
+        }
+
+        const el = (tag, props = {}, children = []) => {
+            const node = Object.assign(document.createElement(tag), props);
+            children.forEach(child => node.append(child));
+            return node;
+        };
+        const icon = name => {
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+            use.setAttribute('href', '#i-' + name);
+            svg.append(use);
+            return svg;
+        };
+        const list = text => text.split(',').map(item => item.trim()).filter(Boolean);
+        const pressed = id => $(id).getAttribute('aria-pressed') === 'true';
+        const setPressed = (id, on) => $(id).setAttribute('aria-pressed', on ? 'true' : 'false');
+        const savedText = restarting => restarting ? 'Saved. Your bot is restarting and will be back in a few seconds.' : 'Saved.';
+
+        function duration(ms) {
+            const minutes = Math.max(0, Math.floor(ms / 60000));
+            if (minutes < 60) return `${minutes} min`;
+            const hours = Math.floor(minutes / 60);
+            return hours < 48 ? `${hours} h ${minutes % 60} min` : `${Math.floor(hours / 24)} days`;
+        }
+
+        function badge(text, kind) {
+            return el('span', { className: 'badge ' + (kind || '') }, [el('i'), text]);
+        }
+
+        function render() {
+            const s = state.settings;
+            const own = channel === me.login;
+            const proc = state.process;
+            const online = !!proc && proc.status === 'online';
+
+            $('channelName').textContent = channel;
+            $('headBadge').replaceChildren(online ? badge('Online', 'on') : badge(proc ? 'Stopped' : 'Not added', proc ? '' : 'warn'));
+
+            // Bot status
+            $('stStatus').textContent = online ? 'Online' : proc ? (proc.status === 'stopped' ? 'Stopped' : proc.status) : 'Not added';
+            $('stUptime').textContent = online ? duration(Date.now() - proc.uptime) : '-';
+            $('stRestarts').textContent = proc ? proc.restarts : '-';
+            $('stMemory').textContent = online && proc.memory ? `${Math.round(proc.memory / 1048576)} MB` : '-';
+            $('botNote').textContent = online ? ''
+                : proc ? 'The bot has left this channel. Your settings and custom commands are kept.'
+                    : `The bot is not in #${channel} yet. Add it and it joins your chat within a few seconds.`;
+            $('botNote').hidden = online;
+
+            const control = (label, action, cls, iconName, confirmText) => {
+                const button = el('button', { className: 'btn ' + (cls || '') }, [icon(iconName), label]);
+                button.onclick = () => {
+                    if (confirmText && !confirm(confirmText)) return;
+                    act(button, async () => {
+                        await api(`/${channel}/control`, { method: 'POST', body: { action } });
+                        banner(action === 'stop' ? 'The bot has left the channel.' : 'Done. The bot is starting.');
+                        await load();
+                    });
+                };
+                return button;
+            };
+            $('botActions').replaceChildren(...(online
+                ? [control('Restart', 'restart', '', 'refresh'), control('Remove', 'stop', 'danger', 'power', `Remove the bot from #${channel}? Your settings are kept.`)]
+                : [control('Add bot to channel', 'start', 'primary', 'power')]));
+
+            // Twitch connection
+            const token = state.token;
+            const stateBox = $('acState');
+            if (!token.present) {
+                stateBox.className = 'state amber';
+                stateBox.replaceChildren(icon('alert'), 'Not connected. Channel-point rewards and the bot badge need this.');
+            } else if (token.valid === false) {
+                stateBox.className = 'state amber';
+                stateBox.replaceChildren(icon('alert'), 'The connection has expired. Refresh it or reconnect.');
+            } else {
+                stateBox.className = 'state good';
+                stateBox.replaceChildren(icon('check'), token.valid === null
+                    ? 'Connected. Twitch could not be reached to check it just now.'
+                    : `Connected. The token renews itself, next in ${duration(token.expiresInSeconds * 1000)}.`);
+            }
+            $('acStats').hidden = !token.present;
+            $('acScopes').textContent = token.scopes && token.scopes.length ? token.scopes.join(', ') : '-';
+            $('acUpdated').textContent = token.updatedAt ? new Date(token.updatedAt).toLocaleString() : '-';
+            const links = [];
+            if (own) {
+                const link = (label, href, cls, confirmText) => {
+                    const a = el('a', { className: 'btn ' + (cls || ''), textContent: label, href });
+                    if (confirmText) a.onclick = event => { if (!confirm(confirmText)) event.preventDefault(); };
+                    return a;
+                };
+                if (token.present) {
+                    links.push(link('Refresh', '/twitch/refresh'));
+                    links.push(link('Reconnect', '/twitch/generate'));
+                    links.push(link('Disconnect', '/twitch/revoke', 'danger', 'Disconnect your Twitch account? Channel-point rewards stop working until you reconnect.'));
+                } else {
+                    links.push(link('Connect Twitch account', '/twitch/generate', 'primary'));
+                }
+                if (me.login === state.botName.toLowerCase()) links.push(link('Bot token', '/twitch/bot-token'));
+            }
+            $('accessActions').replaceChildren(...links);
+            $('accessNote').textContent = own ? '' : `Only ${channel} can connect or disconnect this channel's Twitch account.`;
+            $('accessNote').hidden = own;
+            $('claudeVoice').hidden = !own;
+
+            // Commands
+            $('commandGrid').replaceChildren(...state.commands.map(command => {
+                const box = el('input', { type: 'checkbox', checked: command.enabled, id: `cmd-${command.name}` });
+                const row = el('label', { className: 'cmd' + (command.enabled ? '' : ' off'), title: command.triggers }, [
+                    box,
+                    el('span', { textContent: command.description || command.name }),
+                    el('code', { textContent: command.triggers.split(',')[0] })
+                ]);
+                box.onchange = () => { row.classList.toggle('off', !box.checked); commandSummary(); };
+                return row;
+            }));
+            $('otherExcluded').value = state.otherExcluded.join(', ');
+            commandSummary();
+
+            renderCustom();
+
+            // Moderation and channel
+            setPressed('moderationEnabled', s.moderationEnabled);
+            $('moderationNote').textContent = `Lets moderators use !timeout, !ban and !unban through the bot. The bot must be a moderator: type /mod ${state.botName} in your chat. Off means chat only.`;
+            $('specialUsers').value = s.specialUsers.join(', ');
+            $('location').value = s.location;
+            $('timezoneNote').textContent = s.timezone
+                ? `Timezone ${s.timezone}. Used by !clock, !weather and !forex.`
+                : 'A country, state or city. Sets the timezone for !clock and the default for !weather and !forex.';
+
+            // Channel points
+            setPressed('redemptionEnabled', s.redemptionEnabled);
+            setPressed('testMode', s.testMode);
+            $('timeoutDuration').value = s.redemptionTimeoutDuration;
+            $('timeoutUsers').value = s.timeoutUsers.join(', ');
+            renderRewards(render.rewards || []);
+
+            $('claudePrompt').value = s.claudeSystemPrompt;
+
+            // Overlay and games
+            $('overlayUrl').value = `${location.origin}/countd?channel=${channel}`;
+            $('ovCountdowns').textContent = state.countdowns.length
+                ? state.countdowns.map(c => `${c.title} (${c.endsAt > Date.now() ? duration(c.endsAt - Date.now()) + ' left' : 'ended'})`).join(', ')
+                : 'None';
+            $('ovWordle').textContent = state.wordle ? `${state.wordle.gamesPlayed} games played` : 'No games yet';
+
+            ['saveCommands', 'saveSettings', 'savePoints', 'saveClaude'].forEach(id => { $(id).disabled = true; });
+        }
+
+        function commandSummary() {
+            const off = state.commands.filter(command => !$(`cmd-${command.name}`).checked).length;
+            $('commandSummary').textContent = off ? `${off} of ${state.commands.length} off` : `All ${state.commands.length} on`;
+        }
+
+        function renderRewards(rewards, reason) {
+            render.rewards = rewards;
+            const select = $('rewardSelect');
+            const current = state.settings.redemptionRewardId;
+            const options = [el('option', { value: '', textContent: 'Any reward with a timeout word in its title' })];
+            rewards.forEach(reward => options.push(el('option', { value: reward.id, textContent: `${reward.title} (${reward.cost} points)` })));
+            if (current && !rewards.some(reward => reward.id === current)) {
+                options.push(el('option', { value: current, textContent: `Reward ${current}` }));
+            }
+            select.replaceChildren(...options);
+            select.value = current;
+            if (reason) {
+                $('rewardNote').textContent = reason;
+                $('rewardNote').className = 'note amber';
+            }
+        }
+
+        function renderCustom() {
+            const rows = state.customCommands.map(command => {
+                const edit = el('button', { className: 'btn small', textContent: 'Edit' });
+                edit.onclick = () => openCustom(command);
+                const remove = el('button', { className: 'btn small danger', textContent: 'Delete' });
+                remove.onclick = () => {
+                    if (!confirm(`Delete !${command.name}?`)) return;
+                    act(remove, async () => {
+                        const data = await api(`/${channel}/custom-commands/${command.name}`, { method: 'DELETE' });
+                        state.customCommands = data.customCommands;
+                        renderCustom();
+                        banner(`!${command.name} deleted.`);
+                    });
+                };
+                const name = el('div', { className: 'name' }, ['!' + command.name]);
+                if (command.access !== 'n') name.append(el('span', { className: 'tag', textContent: ACCESS[command.access] || command.access }));
+                name.append(el('code', { textContent: `used ${command.counter} ${command.counter === 1 ? 'time' : 'times'}` }));
+                return el('div', {}, [
+                    el('div', { className: 'main' }, [name, el('div', { className: 'response', textContent: command.response })]),
+                    el('div', { className: 'actions', style: 'flex-wrap: nowrap' }, [edit, remove])
+                ]);
+            });
+            $('customRows').replaceChildren(...(rows.length ? rows : [
+                el('p', { className: 'note', textContent: 'No custom commands yet. Add one here, or in chat with !acomm.' })
+            ]));
+        }
+
+        function openCustom(command) {
+            editing = command || null;
+            $('customTitle').textContent = command ? `Edit !${command.name}` : 'New command';
+            $('customName').value = command ? command.name : '';
+            $('customName').disabled = !!command;
+            $('customResponse').value = command ? command.response : '';
+            $('customAccess').value = command ? command.access : 'n';
+            $('customCounter').value = command ? command.counter : 0;
+            $('customCounterField').hidden = !command;
+            $('customSave').disabled = false;
+            $('customPanel').hidden = false;
+            $('customPanel').scrollIntoView({ block: 'nearest' });
+            (command ? $('customResponse') : $('customName')).focus();
+        }
+
+        async function load() {
+            state = await api(`/${channel}`);
+            render();
+        }
+
+        async function loadLogs() {
+            const out = $('logOutput');
+            try {
+                const data = await api(`/${channel}/logs`);
+                // pm2 stamps each line and so does the bot: keep the bot's own stamp.
+                const lines = data.lines.map(line => line.replace(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d: (?=\[)/, ''));
+                out.textContent = lines.length ? lines.join('\n') : 'No log lines yet.';
+                out.scrollTop = out.scrollHeight;
+            } catch (error) {
+                out.textContent = error.message;
+            }
+        }
+
+        function saveSettings(button, body) {
+            act(button, async () => {
+                const data = await api(`/${channel}/settings`, { method: 'POST', body });
+                banner(savedText(data.restarting));
+                await load();
+            });
+        }
+
+        // A card's Save button wakes up once something in that card changes.
+        [['cardCommands', 'saveCommands'], ['cardSettings', 'saveSettings'], ['cardPoints', 'savePoints'], ['cardClaude', 'saveClaude']].forEach(([card, save]) => {
+            const dirty = () => { $(save).disabled = false; };
+            $(card).addEventListener('input', dirty);
+            $(card).addEventListener('change', dirty);
+            $(card).querySelectorAll('.switch').forEach(button => {
+                button.onclick = () => { setPressed(button.id, !pressed(button.id)); dirty(); };
+            });
+        });
+
+        $('saveSettings').onclick = event => saveSettings(event.currentTarget, {
+            moderationEnabled: pressed('moderationEnabled'),
+            specialUsers: list($('specialUsers').value),
+            // An unchanged location is left alone, not looked up again.
+            ...($('location').value.trim() !== state.settings.location ? { location: $('location').value.trim() } : {})
+        });
+        $('savePoints').onclick = event => saveSettings(event.currentTarget, {
+            redemptionEnabled: pressed('redemptionEnabled'),
+            redemptionRewardId: $('rewardSelect').value,
+            redemptionTimeoutDuration: Number($('timeoutDuration').value),
+            testMode: pressed('testMode'),
+            timeoutUsers: list($('timeoutUsers').value)
+        });
+        $('saveClaude').onclick = event => saveSettings(event.currentTarget, { claudeSystemPrompt: $('claudePrompt').value });
+        $('saveCommands').onclick = event => act(event.currentTarget, async () => {
+            const disabled = state.commands.filter(command => !$(`cmd-${command.name}`).checked).map(command => command.name);
+            const data = await api(`/${channel}/commands`, { method: 'POST', body: { disabled, otherExcluded: list($('otherExcluded').value) } });
+            banner(savedText(data.restarting));
+            await load();
+        });
+        $('refreshLogs').onclick = loadLogs;
+        $('bannerClose').onclick = () => { $('banner').className = 'banner'; };
+        $('copyOverlay').onclick = async () => {
+            try {
+                await navigator.clipboard.writeText($('overlayUrl').value);
+                $('copyOverlay').textContent = 'Copied';
+                setTimeout(() => { $('copyOverlay').textContent = 'Copy'; }, 1500);
+            } catch (error) {
+                $('overlayUrl').select();
+            }
+        };
+        $('addCustom').onclick = () => openCustom(null);
+        $('customCancel').onclick = () => { $('customPanel').hidden = true; };
+        $('customSave').onclick = () => act($('customSave'), async () => {
+            const body = {
+                create: !editing,
+                name: $('customName').value.trim(),
+                response: $('customResponse').value,
+                access: $('customAccess').value
+            };
+            if (editing) body.counter = Number($('customCounter').value);
+            const data = await api(`/${channel}/custom-commands`, { method: 'POST', body });
+            state.customCommands = data.customCommands;
+            renderCustom();
+            $('customPanel').hidden = true;
+            banner(`!${body.name.replace(/^!/, '').toLowerCase()} saved. It works in chat right away.`);
+        });
+
+        (async () => {
+            try {
+                me = await api('/me');
+                $('who').textContent = me.displayName || me.login;
+                const wanted = new URLSearchParams(location.search).get('channel');
+                channel = me.channels.includes(wanted) ? wanted : me.login;
+                if (me.channels.length > 1) {
+                    $('switcherBar').replaceChildren(
+                        el('span', { className: 'caption', textContent: 'Bots' }),
+                        ...me.channels.map(name => el('a', {
+                            className: 'chip' + (name === channel ? ' current' : ''),
+                            href: `/twitch?channel=${name}`,
+                            textContent: name === me.login ? `${name} (you)` : name
+                        }))
+                    );
+                    $('switcher').hidden = false;
+                }
+                await load();
+                loadLogs();
+                api(`/${channel}/rewards`).then(data => renderRewards(data.rewards, data.reason)).catch(() => {});
+
+                // Results of the Twitch connect / refresh / disconnect redirects.
+                const params = new URLSearchParams(location.search);
+                if (params.has('refreshed')) banner('Token refreshed.');
+                if (params.has('generated')) banner('Twitch account connected.');
+                if (params.has('revoked')) banner('Twitch account disconnected.');
+                if (params.has('error')) banner(params.get('error'), true);
+                if (['refreshed', 'generated', 'revoked', 'error'].some(key => params.has(key))) {
+                    ['refreshed', 'generated', 'revoked', 'error'].forEach(key => params.delete(key));
+                    const rest = params.toString();
+                    history.replaceState(null, '', '/twitch' + (rest ? '?' + rest : ''));
+                }
+            } catch (error) {
+                banner(error.message, true);
+            }
+        })();
+    </script>
+</body>
+</html>

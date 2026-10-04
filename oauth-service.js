@@ -306,9 +306,12 @@ async function getUserInfo(accessToken) {
 
 // Main dashboard - requires authentication
 app.get('/twitch', requireAuth, (req, res) => {
-    // User is authenticated, show their dashboard
-    showUserDashboard(req.session.user.login, res, req.session.user);
+    // The page loads everything it shows from the API in dashboard-api.js
+    res.sendFile(path.join(__dirname, 'views', 'bot-dashboard.html'));
 });
+
+// Bot web config API (settings, commands, custom commands, bot control, logs)
+require('./dashboard-api.js').mount(app, { getChannelOAuth, eventSubPort: BOT_SERVICE_PORT });
 
 // Login page
 app.get('/twitch/login', (req, res) => {
@@ -527,125 +530,6 @@ async function createDefaultChannelConfig(username) {
     await saveChannelConfig(username, defaultConfig);
     console.log(`Created default channel config for: ${username}`);
     return defaultConfig;
-}
-
-// Function to show user's personal dashboard (SECURE - only shows their own data)
-async function showUserDashboard(username, res, userSession) {
-    try {
-        let config = await loadChannelConfig(username);
-        let isNewChannel = false;
-
-        // If no config exists, create a default one
-        if (!config) {
-            config = await createDefaultChannelConfig(username);
-            isNewChannel = true;
-        }
-
-        let actions = '';
-
-        // Welcome message for new channels
-        let welcomeMessage = '';
-        if (isNewChannel) {
-            welcomeMessage = `
-                <div class="welcome-message">
-                    <h3>🎉 Welcome to Mr-AI-is-Here Bot!</h3>
-                    <p>We've automatically created a configuration for your channel <strong>${username}</strong>.</p>
-                    <p>Click "Generate OAuth Token" below to give Mr-AI-is-Here bot permission to operate in your channel.</p>
-                </div>
-            `;
-        }
-
-        // Check OAuth status
-        let oauthStatus = '❌ No OAuth Token';
-        let oauthDetails = '';
-
-        // Check OAuth status from separate oauth.json file
-        const oauthData = await getChannelOAuth(username);
-
-        if (oauthData && oauthData.access_token) {
-            try {
-                const validateResponse = await axios.get('https://id.twitch.tv/oauth2/validate', {
-                    headers: { 'Authorization': `Bearer ${oauthData.access_token}` }
-                });
-
-                oauthStatus = '✅ OAuth Active';
-                oauthDetails = `
-                    <p><strong>Token expires in:</strong> ${Math.floor(validateResponse.data.expires_in / 3600)} hours</p>
-                    <p><strong>Scopes:</strong> ${validateResponse.data.scopes.join(', ')}</p>
-                    <p><strong>Last updated:</strong> ${new Date(oauthData.updated_at).toLocaleString()}</p>
-                `;
-
-                actions = `
-    <button class="btn-success" onclick="window.location.href = '/twitch/refresh'">🔄 Refresh Token</button>
-    <button class="btn-primary" onclick="window.location.href = '/twitch/generate'">🔐 Re-authenticate</button>
-    <button class="btn-danger" onclick="window.location.href = '/twitch/revoke'">🗑️ Revoke Access</button>
-`;
-
-            } catch (error) {
-                if (error.response?.status === 401) {
-                    oauthStatus = '⚠️ OAuth Token Expired';
-                    oauthDetails = `
-                        <p><strong>Last updated:</strong> ${new Date(oauthData.updated_at).toLocaleString()}</p>
-                        <p style="color: #f59e0b;">Your OAuth token has expired and needs to be refreshed or regenerated.</p>
-                    `;
-
-                    actions = `
-    <button class="btn-warning" onclick="window.location.href = '/twitch/refresh'">🔄 Try Refresh</button>
-    <button class="btn-primary" onclick="window.location.href = '/twitch/generate'">🔐 Re-authenticate</button>
-    <button class="btn-danger" onclick="window.location.href = '/twitch/revoke'">🗑️ Remove Token</button>
-`;
-                }
-            }
-        } else {
-            actions = `
-    <button class="btn-primary" onclick="window.location.href = '/twitch/generate'">🔐 Generate OAuth Token</button>
-`;
-        }
-
-        const channelStatus = `
-            <div class="channel-status">
-                <h3>📋 Your Channel Status</h3>
-                <p><strong>Channel:</strong> ${config.channelName || username}</p>
-                <p><strong>Moderation Enabled:</strong> ${config.moderationEnabled ? 'Yes' : 'No'}</p>
-                <p><strong>Chat Only Mode:</strong> ${config.chatOnly ? 'Yes' : 'No'}</p>
-                <p><strong>Redemptions Enabled:</strong> ${config.redemptionEnabled ? 'Yes' : 'No'}</p>
-                <p><strong>OAuth Status:</strong> ${oauthStatus}</p>
-                ${oauthDetails}
-            </div>
-        `;
-
-        // Check if user is the bot owner
-        const botOwnerUsername = process.env.TWITCH_USERNAME;
-        const isBotOwner = username.toLowerCase() === botOwnerUsername.toLowerCase();
-        const botTokenLink = isBotOwner ? '<a href="/twitch/bot-token">🔧 Bot Token Manager</a> |' : '';
-
-        // Load template
-        const templatePath = path.join(__dirname, 'views', 'dashboard.html');
-        let html = await fs.readFile(templatePath, 'utf8');
-
-        // Replace placeholders
-        html = html.replace(/{{USERNAME}}/g, username);
-        html = html.replace(/{{DISPLAY_NAME}}/g, userSession.display_name);
-        html = html.replace(/{{LOGIN}}/g, userSession.login);
-        html = html.replace(/{{EMAIL}}/g, userSession.email || 'Not provided');
-        html = html.replace(/{{SESSION_TIME}}/g, new Date(userSession.authenticated_at).toLocaleString());
-        html = html.replace(/{{WELCOME_MESSAGE}}/g, welcomeMessage);
-        html = html.replace(/{{CHANNEL_STATUS}}/g, channelStatus);
-        html = html.replace(/{{ACTIONS}}/g, actions);
-        html = html.replace(/{{MODERATION_STATUS}}/g, config.moderationEnabled ? 'Enabled' : 'Disabled');
-        html = html.replace(/{{CHAT_ONLY_STATUS}}/g, config.chatOnly ? 'Enabled' : 'Disabled');
-        html = html.replace(/{{REDEMPTION_STATUS}}/g, config.redemptionEnabled ? 'Enabled' : 'Disabled');
-        html = html.replace(/{{BOT_TOKEN_LINK}}/g, botTokenLink);
-
-        res.send(html);
-
-    } catch (error) {
-        res.status(500).send(`
-            <h1>❌ Error Loading Dashboard</h1>
-            <p>Failed to load dashboard for ${username}: ${error.message}</p>
-            <a href="/twitch">Back to Dashboard</a>
-        `);
-    }
 }
 
 // Generate OAuth for specific channel (SECURE - only for authenticated user's channel)
