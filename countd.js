@@ -135,6 +135,9 @@ fs.watch(filePath, (event) => {
 });
 
 // Start the server
-app.listen(port, () => {
+// Loopback only (2026-10-16 audit): nginx and the other services reach this as `localhost`,
+// which resolves to ::1 first, so both loopback addresses listen; nothing is reachable from outside.
+require('http').createServer(app).listen(Number(port), '::1').on('error', err => console.error(`Could not listen on [::1]:${port}: ${err.message}`));
+app.listen(Number(port), '127.0.0.1', () => {
     console.log(`Node.js app listening at http://localhost:${port}`);
 });
