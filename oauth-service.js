@@ -1415,6 +1415,14 @@ module.exports = { loadChannelConfig, saveChannelConfig };
 const RENEWAL_CHECK_INTERVAL = 30 * 60 * 1000; // Check every 30 minutes
 const RENEWAL_THRESHOLD = 30 * 60; // Renew if less than 30 minutes remaining
 
+// Twitch answers 400 "Invalid refresh token" once a refresh token is revoked or
+// expired, and retrying can't fix that. Network errors, 5xx and a bad client
+// secret (403, every channel at once) stay retryable.
+function isRefreshTokenRejected(error) {
+    return error.response?.status === 400 &&
+        /invalid refresh token/i.test(String(error.response?.data?.message || ''));
+}
+
 class TokenRenewalService {
     constructor() {
         this.intervalId = null;
@@ -1459,6 +1467,12 @@ class TokenRenewalService {
                     const channelOAuth = oauthData.channels[channel];
 
                     if (!channelOAuth?.access_token) {
+                        continue;
+                    }
+
+                    // Twitch already refused this refresh token: only the streamer
+                    // signing in again (which rewrites the entry) can fix it.
+                    if (channelOAuth.refresh_rejected_at) {
                         continue;
                     }
 
@@ -1545,7 +1559,35 @@ class TokenRenewalService {
 
         } catch (error) {
             console.error(`Failed to auto-renew token for ${channelName}:`, error.response?.data || error.message);
+            if (isRefreshTokenRejected(error)) {
+                await this.markRefreshRejected(channelName, channelOAuth.refresh_token);
+            }
             return false;
+        }
+    }
+
+    // Stop retrying a channel whose refresh token Twitch refused, and say so once.
+    // setChannelOAuth rebuilds the entry without this field, so the streamer
+    // signing in again clears it.
+    async markRefreshRejected(channelName, refreshToken) {
+        try {
+            const oauthData = await loadOAuthData();
+            const entry = oauthData.channels[channelName];
+            // The streamer may have signed in again while the refresh was in flight.
+            if (!entry || entry.refresh_token !== refreshToken) return;
+
+            entry.refresh_rejected_at = new Date().toISOString();
+            await saveOAuthData(oauthData);
+
+            console.log(`⏸️ Stopped auto-renewing ${channelName}: Twitch refused its refresh token. They need to sign in again at ${BASE_URL}/twitch/login`);
+            await new TelegramNotifier().sendMessage(
+                `⏸️ <b>Twitch login expired: ${channelName}</b>\n\n` +
+                `Twitch refused the refresh token, so auto-renewal has stopped for this channel. ` +
+                `Chat still works; channel-point redemptions don't.\n\n` +
+                `To fix it, ${channelName} signs in again at ${BASE_URL}/twitch/login`
+            );
+        } catch (error) {
+            console.error(`Failed to mark ${channelName}'s refresh token as rejected:`, error.message);
         }
     }
 
